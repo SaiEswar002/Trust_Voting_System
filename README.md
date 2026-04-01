@@ -260,6 +260,4 @@ MIT License. See `LICENSE` file for details.
 **Developer:** E. Sai Eswar  
 **Institution:** KL University, BTech CSE (DevOps Specialization)  
 **Project Type:** Hackathon / Academic Demonstration  
-**GitHub:** [Your GitHub Profile]
-
 For questions about the cryptographic implementation, see [`ARCHITECTURE.md`](./ARCHITECTURE.md). For general inquiries, open an issue in this repository.
