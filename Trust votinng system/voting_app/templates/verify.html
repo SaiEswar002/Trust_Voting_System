@@ -1,0 +1,28 @@
+{% extends 'base.html' %}
+
+{% block content %}
+<div class="card text-center" style="margin-top: 3rem; max-width: 600px; margin-left: auto; margin-right: auto;">
+    <div class="card-header">
+        <h3>Public Audit Trail Receipt Verification</h3>
+    </div>
+    
+    <div id="verify-form-container" style="margin-top: 1.5rem;">
+        <p style="margin-bottom: 2rem;">Please provide your unique receipt ID to cryptographically verify your vote in the decentralized network.</p>
+        <form method="GET" action="{{ url_for('serve_verify') }}" class="form-group">
+            <div class="input-field">
+                <label for="receipt_id">Cryptographic Receipt ID</label>
+                <input type="text" name="receipt_id" id="receipt_id" value="{{ request.args.get('receipt_id', '') }}" placeholder="e.g. REC-123-ABC" required>
+            </div>
+            <button type="submit" class="btn primary-btn btn-full" style="margin-top: 1rem;">Verify Receipt Integrity</button>
+        </form>
+    </div>
+
+    <!-- Verification Result logic would go here, currently app.py just flashes -->
+    {% if request.args.get('receipt_id') %}
+    <div id="verify-result" style="margin-top: 2rem; padding-top: 1.5rem; border-top: 1px solid var(--border-color);">
+        <!-- Success or error handled by flashes in base.html currently -->
+        <p style="font-size: 0.9rem; color: var(--text-muted);">Please check the status notification banner above for cryptographic verification results.</p>
+    </div>
+    {% endif %}
+</div>
+{% endblock %}

@@ -83,58 +83,47 @@
     document.addEventListener('DOMContentLoaded', () => {
         const tbody = document.getElementById('voter-tbody');
         
-        async function loadVoters() {
-            try {
-                const res = await fetch('/api/voters');
-                const data = await res.json();
-                
-                tbody.innerHTML = '';
-                data.forEach(voter => {
-                    const tr = document.createElement('tr');
-                    tr.id = `voter-row-${voter.voter_id}`;
-                    
-                    const statusClass = voter.has_voted ? 'status-badge status-cast' : 'status-badge status-awaiting';
-                    const statusText = voter.has_voted ? 'Vote Cast' : 'Awaiting Vote';
-                    
-                    tr.innerHTML = `
-                        <td style="padding: 1rem; border-bottom: 1px solid var(--border-color); font-weight: 500;">${voter.voter_id}</td>
-                        <td style="padding: 1rem; border-bottom: 1px solid var(--border-color); font-family: monospace; font-size: 0.8rem; color: var(--text-muted);">${voter.fingerprint_hash}</td>
-                        <td style="padding: 1rem; border-bottom: 1px solid var(--border-color);"><span id="voter-status-${voter.voter_id}" class="${statusClass}">${statusText}</span></td>
-                    `;
-                    tbody.appendChild(tr);
-                });
-            } catch (e) {
-                console.error("Error fetching voters:", e);
-            }
+        function renderVoters(voters) {
+            tbody.innerHTML = '';
+            voters.forEach(voter => {
+                const tr = document.createElement('tr');
+                tr.id = `voter-row-${voter.voter_id}`;
+                const statusClass = voter.has_voted ? 'status-badge status-cast' : 'status-badge status-awaiting';
+                const statusText = voter.has_voted ? 'Vote Cast' : 'Awaiting Vote';
+                tr.innerHTML = `
+                    <td style="padding: 1rem; border-bottom: 1px solid var(--border-color); font-weight: 500;">${voter.voter_id}</td>
+                    <td style="padding: 1rem; border-bottom: 1px solid var(--border-color); font-family: monospace; font-size: 0.8rem; color: var(--text-muted);">${voter.fingerprint_hash}</td>
+                    <td style="padding: 1rem; border-bottom: 1px solid var(--border-color);"><span id="voter-status-${voter.voter_id}" class="${statusClass}">${statusText}</span></td>
+                `;
+                tbody.appendChild(tr);
+            });
         }
 
-        loadVoters();
+        const initialVoters = {{ voters|tojson|safe }};
+        renderVoters(initialVoters);
+        
+        async function loadVoters() {
+            window.location.reload(); // Refresh via GET /admin to get fresh data
+        }
         
         document.getElementById('refresh-voters-btn').addEventListener('click', loadVoters);
 
         // State Transitions
         document.querySelectorAll('.state-transition-btn').forEach(btn => {
-            btn.addEventListener('click', async (e) => {
+            btn.addEventListener('click', (e) => {
                 const nextState = e.target.getAttribute('data-next');
                 if(confirm(`Are you sure you want to transition the election to ${nextState}? This action cannot be easily undone.`)) {
-                    try {
-                        const res = await fetch('/api/admin/transition_state', {
-                            method: 'POST',
-                            headers: {'Content-Type': 'application/json'},
-                            body: JSON.stringify({ new_state: nextState })
-                        });
-                        const data = await res.json();
-                        if (res.ok) {
-                            window.location.reload();
-                        } else {
-                            alert("Error: " + data.message);
-                        }
-                    } catch (err) {
-                        console.error(err);
-                        alert("Failed to transition state.");
-                    }
+                    socket.emit('request_transition', { new_state: nextState });
                 }
             });
+        });
+
+        socket.on('transition_response', (data) => {
+            if (data.status === 'success') {
+                window.location.reload();
+            } else {
+                alert("Error: " + data.message);
+            }
         });
 
         // Master Reset
@@ -143,7 +132,7 @@
             resetBtn.addEventListener('click', async () => {
                 if(confirm("🚨 WARNING: This will completely WIPE the blockchain, all vote history, and reset the election to REGISTRATION mode. This cannot be undone. Proceed?")) {
                     try {
-                        const res = await fetch('/api/admin/reset_election', { method: 'POST' });
+                        const res = await fetch('/admin/master-reset', { method: 'POST' });
                         if (res.ok) {
                             window.location.href = '/admin'; // Force reload/redirect to refresh state
                         } else {

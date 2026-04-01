@@ -34,7 +34,7 @@ if len(sys.argv) >= 3:
 
 PEER_NODES = [5001, 5002, 5003, 5004, 5005, 5006]
 
-app = Flask(__name__, static_folder='static', template_folder='static/templates')
+app = Flask(__name__)
 app.config.from_object(Config)
 Session(app)
 socketio = SocketIO(app, async_mode='threading', cors_allowed_origins="*")
@@ -83,7 +83,7 @@ def login_page():
         fingerprint_hash = request.form.get('fingerprint_hash')
         voter = db.get_voter(voter_id)
         
-        if voter and voter['fingerprint_hash'] == fingerprint_hash:
+        if voter and voter['fingerprint_hash'] == crypto.hash_fingerprint(fingerprint_hash):
             session['role'] = 'user'
             session['username'] = voter_id
             flash("Voter Authenticated. Proceed to Booth.", "success")
@@ -132,12 +132,24 @@ def serve_index():
 @app.route('/admin')
 @require_role(['worker', 'admin'])
 def serve_admin():
-    return render_template('admin.html')
+    voters_raw = db.get_all_voters()
+    voters = []
+    for v in voters_raw:
+        if v["assigned_booth"] == BOOTH_ID:
+            v_hash = hashlib.sha256(str(v["voter_id"]).encode('utf-8')).hexdigest()
+            voters.append({
+                "voter_id": v["voter_id"],
+                "voter_hash": v_hash,
+                "has_voted": v["has_voted"],
+                "fingerprint_hash": v["fingerprint_hash"]
+            })
+    return render_template('admin.html', voters=voters)
 
 @app.route('/explorer')
 @require_role(['worker', 'admin'])
 def serve_explorer():
-    return render_template('explorer.html')
+    chain_data = [b.__dict__ for b in election_chain.chain]
+    return render_template('explorer.html', chain=chain_data)
 
 @app.route('/commission')
 @require_role(['admin'])
@@ -147,37 +159,33 @@ def serve_commission():
 @app.route('/network-status')
 @require_role(['admin'])
 def serve_network_status():
-    return render_template('network_status.html')
+    results = []
+    reference_length = len(election_chain.chain)
+    consensus_healthy = True
+    
+    for peer in PEER_NODES:
+        if peer == PORT:
+            results.append({"id": BOOTH_ID, "port": PORT, "status": "Online", "chain_length": reference_length})
+        else:
+            try:
+                r = requests.get(f"http://127.0.0.1:{peer}/api/blockchain", timeout=1)
+                data = r.json()
+                if data['length'] != reference_length:
+                    consensus_healthy = False
+                results.append({"id": peer - 5000, "port": peer, "status": "Online", "chain_length": data['length']})
+            except:
+                results.append({"id": peer - 5000, "port": peer, "status": "Offline", "chain_length": 0})
+
+    return render_template('network_status.html', nodes=results, consensus_healthy=consensus_healthy)
 
 @app.route('/verify')
 def serve_verify():
     receipt_id = request.args.get('receipt_id')
-    if not receipt_id:
-        return render_template('base.html') # Need to pass custom block or flash
-        
-    receipt = db.get_receipt(receipt_id)
-    if not receipt:
-        flash("Receipt Not Found or Tampered. Validation Failed.", "error")
-        return render_template('base.html') # Ideally a custom verify page
-        
-    # Validation logic
-    block = election_chain.chain[receipt['block_index']]
-    
-    if block.hash != receipt['block_hash']:
-        flash("CRITICAL ERROR: The ledger block hash does not match the receipt. TAMPER EVENT DETECTED.", "error")
-        return render_template('base.html')
-        
-    # Recompute checksum
-    checksum = hashlib.sha256(f"{receipt_id}{receipt['block_hash']}{receipt['voter_id']}".encode()).hexdigest()
-    if checksum != receipt['checksum']:
-        flash("CRITICAL ERROR: Receipt Cryptographic Checksum Invalid. Document may be forged.", "error")
-        return render_template('base.html')
-        
-    return render_template('base.html') # Ideally passing the validated receipt as success
+    return render_template('verify.html')
 
 # --- CORE LOGIC API ---
 
-@app.route('/api/authenticate', methods=['POST'])
+@app.route('/authenticate', methods=['POST'])
 def authenticate():
     # Only called from frontend AJAX during booth Phase 1
     if session.get('role') != 'user':
@@ -200,7 +208,7 @@ def authenticate():
     if voter_record["assigned_booth"] != BOOTH_ID:
         return jsonify({"status": "error", "message": f"Access Denied: Registered at Booth {voter_record['assigned_booth']}!"}), 403
 
-    if input_hash != voter_record["fingerprint_hash"]:
+    if crypto.hash_fingerprint(input_hash) != voter_record["fingerprint_hash"]:
         return jsonify({"status": "error", "message": "Biometric authentication failed"}), 401
         
     if ElectionStateManager.get_state() != 'ACTIVE':
@@ -208,7 +216,7 @@ def authenticate():
 
     return jsonify({"status": "success", "message": "Authentication successful. Proceed to private booth."}), 200
 
-@app.route('/api/vote', methods=['POST'])
+@app.route('/vote', methods=['POST'])
 def cast_vote():
     if session.get('role') != 'user':
         return jsonify({"status": "error", "message": "Unauthorized"}), 401
@@ -222,7 +230,7 @@ def cast_vote():
     fingerprint_hash = data.get('fingerprint_hash')
     
     voter_record = db.get_voter(voter_id)
-    if not voter_record or fingerprint_hash != voter_record["fingerprint_hash"]:
+    if not voter_record or crypto.hash_fingerprint(fingerprint_hash) != voter_record["fingerprint_hash"]:
         return jsonify({"status": "error", "message": "Authentication failed"}), 401
 
     if voter_record["has_voted"]:
@@ -288,17 +296,18 @@ def cast_vote():
         'new_status': True
     })
 
-    # Broadcast to P2P peers
+    # Broadcast to P2P peers (daemon thread so it never blocks server shutdown)
     def broadcast_block(blk_dict):
         for peer_port in PEER_NODES:
             if peer_port != PORT:
                 try:
-                    requests.post(f"http://127.0.0.1:{peer_port}/api/nodes/receive_block", json=blk_dict, timeout=1)
-                except requests.exceptions.RequestException:
-                    pass
+                    requests.post(f"http://127.0.0.1:{peer_port}/internal/sync-reset", json=blk_dict, timeout=0.5)
+                except Exception:
+                    pass  # Offline peers are silently skipped
     
     blk_payload = dict(new_block.__dict__)
-    threading.Thread(target=broadcast_block, args=(blk_payload,)).start()
+    t = threading.Thread(target=broadcast_block, args=(blk_payload,), daemon=True)
+    t.start()
 
     return jsonify({
         "status": "success",
@@ -307,63 +316,20 @@ def cast_vote():
         "qr_image": qr_b64
     }), 200
 
-# --- ADMIN / EXPLORER APIS ---
+# --- SOCKETIO ACTIONS ---
 
-@app.route('/api/voters', methods=['GET'])
-@require_role(['worker', 'admin'])
-def get_voters():
-    voters = db.get_all_voters()
-    response = []
-    for v in voters:
-        if v["assigned_booth"] == BOOTH_ID:
-            v_hash = hashlib.sha256(str(v["voter_id"]).encode('utf-8')).hexdigest()
-            response.append({
-                "voter_id": v["voter_id"],
-                "voter_hash": v_hash,
-                "has_voted": v["has_voted"],
-                "fingerprint_hash": v["fingerprint_hash"]
-            })
-    return jsonify(response), 200
-
-@app.route('/api/blockchain', methods=['GET'])
-def get_blockchain():
-    return jsonify({"length": len(election_chain.chain), "chain": [b.__dict__ for b in election_chain.chain]}), 200
-
-@app.route('/api/validate_chain', methods=['GET'])
-def validate_chain():
-    result = election_chain.is_valid_chain()
-    return jsonify({"status": "success", "is_valid": result["is_valid"], "broken_block": result["broken_block"], "reason": result["reason"]}), 200
-
-@app.route('/api/hack_block', methods=['POST'])
-@require_role(['admin'])
-def hack_block():
-    data = request.json
-    block_index = data.get('block_index')
-    new_data = data.get('new_data')
-    if block_index > 0 and block_index < len(election_chain.chain):
-        election_chain.chain[block_index].data = new_data
-        return jsonify({"status": "success"})
-    return jsonify({"status": "error"}), 400
-
-@app.route('/api/get_private_key', methods=['GET'])
-@require_role(['admin'])
-def get_private_key():
-    p_key_string = f"pk_{crypto.ELECTION_PRIV_KEY.p}_{crypto.ELECTION_PRIV_KEY.q}"
-    return jsonify({"private_key": p_key_string}), 200
-
-@app.route('/api/tally', methods=['POST'])
-@require_role(['admin'])
-def tally_votes():
+@socketio.on('request_tally')
+def handle_tally(data):
+    if session.get('role') != 'admin':
+        return
     if ElectionStateManager.get_state() not in ['CLOSED', 'TALLIED']:
-        return jsonify({"status": "error", "message": "Election must be CLOSED before computing final tally."}), 403
-
-    data = request.json
+        socketio.emit('tally_response', {"status": "error", "message": "Election must be CLOSED before computing final tally."})
+        return
     provided_key = data.get('private_key')
     actual_key = f"pk_{crypto.ELECTION_PRIV_KEY.p}_{crypto.ELECTION_PRIV_KEY.q}"
-    
     if provided_key != actual_key:
-        return jsonify({"status": "error", "message": "Access Denied: Invalid Master Private Key."}), 403
-
+        socketio.emit('tally_response', {"status": "error", "message": "Access Denied: Invalid Master Private Key."})
+        return
     all_encrypted_votes = []
     for block in election_chain.chain[1:]:
         payload = block.data
@@ -373,54 +339,53 @@ def tally_votes():
                 all_encrypted_votes.append(reconstructed_enc)
             except Exception:
                 continue
-
     if not all_encrypted_votes:
-         return jsonify({"status": "success", "results": [0, 0, 0], "message": "No valid votes found on chain."}), 200
-
+         socketio.emit('tally_response', {"status": "success", "results": [0, 0, 0], "message": "No valid votes found on chain."})
+         return
     tally_encrypted = crypto.tally_encrypted_votes(all_encrypted_votes)
     final_tally = crypto.decrypt_tally(tally_encrypted)
+    socketio.emit('tally_response', {"status": "success", "results": final_tally})
 
-    return jsonify({"status": "success", "results": final_tally}), 200
-
-@app.route('/api/admin/transition_state', methods=['POST'])
-@require_role(['admin'])
-def transition_state():
-    data = request.json
+@socketio.on('request_transition')
+def handle_transition(data):
+    if session.get('role') != 'admin':
+        return
     new_state = data.get('new_state')
     admin_user = session.get('username')
     try:
         ElectionStateManager.transition_to(new_state, admin_user)
-        socketio.emit('election_state_change', {
-            'new_state': new_state,
-            'changed_by': admin_user
-        })
-        return jsonify({"status": "success"}), 200
+        socketio.emit('election_state_change', {'new_state': new_state, 'changed_by': admin_user})
+        socketio.emit('transition_response', {"status": "success"})
     except ElectionStateError as e:
-        return jsonify({"status": "error", "message": str(e)}), 400
+        socketio.emit('transition_response', {"status": "error", "message": str(e)})
 
-@app.route('/api/admin/network_diagnostics', methods=['GET'])
-@require_role(['admin'])
-def network_diagnostics():
-    results = []
-    reference_length = len(election_chain.chain)
-    consensus_healthy = True
-    
-    for peer in PEER_NODES:
-        if peer == PORT:
-            results.append({"id": BOOTH_ID, "port": PORT, "status": "Online", "chain_length": reference_length})
-        else:
-            try:
-                r = requests.get(f"http://127.0.0.1:{peer}/api/blockchain", timeout=1)
-                data = r.json()
-                if data['length'] != reference_length:
-                    consensus_healthy = False
-                results.append({"id": peer - 5000, "port": peer, "status": "Online", "chain_length": data['length']})
-            except:
-                results.append({"id": peer - 5000, "port": peer, "status": "Offline", "chain_length": 0})
-                
-    return jsonify({"nodes": results, "consensus_healthy": consensus_healthy}), 200
+@socketio.on('request_hack')
+def handle_hack(data):
+    if session.get('role') != 'admin':
+        return
+    block_index = data.get('block_index')
+    new_data = data.get('new_data')
+    if block_index > 0 and block_index < len(election_chain.chain):
+        election_chain.chain[block_index].data = new_data
+        socketio.emit('hack_response', {"status": "success"})
+    else:
+        socketio.emit('hack_response', {"status": "error"})
 
-@app.route('/api/admin/reset_election', methods=['POST'])
+@socketio.on('request_validation')
+def handle_validation():
+    if session.get('role') not in ['worker', 'admin']:
+        return
+    result = election_chain.is_valid_chain()
+    socketio.emit('validation_response', {"status": "success", "is_valid": result["is_valid"], "broken_block": result["broken_block"], "reason": result["reason"]})
+
+@socketio.on('request_private_key')
+def handle_private_key():
+    if session.get('role') != 'admin':
+        return
+    p_key_string = f"pk_{crypto.ELECTION_PRIV_KEY.p}_{crypto.ELECTION_PRIV_KEY.q}"
+    socketio.emit('private_key_response', {"private_key": p_key_string})
+
+@app.route('/admin/master-reset', methods=['POST'])
 @require_role(['admin'])
 def reset_election():
     global election_chain
@@ -432,7 +397,7 @@ def reset_election():
     except Exception as e:
         return jsonify({"status": "error", "message": str(e)}), 400
 
-@app.route('/api/nodes/receive_block', methods=['POST'])
+@app.route('/internal/sync-reset', methods=['POST'])
 def receive_block():
     block_data = request.json
     if block_data['index'] > election_chain.last_block.index:
@@ -459,14 +424,20 @@ def receive_block():
 
 # Error Handlers
 @app.errorhandler(401)
+def unauthorized(e):
+    return render_template('error/401.html'), 401
+
 @app.errorhandler(403)
+def forbidden(e):
+    return render_template('error/403.html'), 403
+
 @app.errorhandler(404)
+def page_not_found(e):
+    return render_template('error/404.html'), 404
+
 @app.errorhandler(500)
-def handle_error(e):
-    # Minimalistic error wrapper over base template for clean UI
-    msg = str(e)
-    # Could create dedicated error.html but injecting message allows reuse.
-    return render_template('error.html', error=e, current_node_port=PORT, current_node_label=BOOTH_ID), e.code
+def internal_server_error(e):
+    return render_template('error/500.html'), 500
 
 if __name__ == '__main__':
     socketio.run(app, debug=False, port=PORT, host='0.0.0.0')

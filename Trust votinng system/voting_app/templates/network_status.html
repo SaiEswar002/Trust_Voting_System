@@ -1,0 +1,86 @@
+{% extends 'base.html' %}
+
+{% block top_nav_links %}
+    <a href="{{ url_for('serve_admin') }}">Booth Dashboard</a>
+    <a href="{{ url_for('serve_explorer') }}">Ledger Explorer</a>
+    <a href="{{ url_for('serve_commission') }}">Commission Tally</a>
+{% endblock %}
+
+{% block content %}
+<section class="card" style="margin-bottom: 2rem;">
+    <div class="card-header">
+        <div>
+            <h3>P2P Network Diagnostics</h3>
+            <p style="margin-bottom: 0;">Live health monitor for all decentralized nodes in the voting network.</p>
+        </div>
+        <button id="refresh-network-btn" class="btn outline-btn btn-small">Ping Network</button>
+    </div>
+    
+    <div id="consensus-status" class="message" style="margin-bottom: 1.5rem;">
+        Scanning network...
+    </div>
+
+    <table style="width: 100%; border-collapse: collapse; margin-top: 1rem;">
+        <thead>
+            <tr>
+                <th style="padding: 1rem; text-align: left; border-bottom: 1px solid var(--border-color); background: var(--bg-light); font-weight: 600;">Node</th>
+                <th style="padding: 1rem; text-align: left; border-bottom: 1px solid var(--border-color); background: var(--bg-light); font-weight: 600;">Port</th>
+                <th style="padding: 1rem; text-align: left; border-bottom: 1px solid var(--border-color); background: var(--bg-light); font-weight: 600;">Status</th>
+                <th style="padding: 1rem; text-align: left; border-bottom: 1px solid var(--border-color); background: var(--bg-light); font-weight: 600;">Chain Length</th>
+            </tr>
+        </thead>
+        <tbody id="nodes-tbody">
+            <tr><td colspan="4" class="text-center" style="padding: 2rem;"><div class="spinner"></div></td></tr>
+        </tbody>
+    </table>
+</section>
+{% endblock %}
+
+{% block scripts %}
+<script>
+    document.addEventListener('DOMContentLoaded', () => {
+        const tbody = document.getElementById('nodes-tbody');
+        const consensusStatus = document.getElementById('consensus-status');
+        const refreshBtn = document.getElementById('refresh-network-btn');
+
+        function renderNetworkStatus(data) {
+            tbody.innerHTML = '';
+            
+            if(data.consensus_healthy) {
+                consensusStatus.className = 'message flash-success';
+                consensusStatus.innerHTML = `✅ <strong>Consensus Secured:</strong> All online nodes are perfectly synced on the same chain tip.`;
+            } else {
+                consensusStatus.className = 'message flash-error';
+                consensusStatus.innerHTML = `❌ <strong>Consensus Broken:</strong> Nodes have diverging chain lengths. Network may be fragmented!`;
+            }
+
+            data.nodes.forEach(node => {
+                const tr = document.createElement('tr');
+                const statusClass = node.status === 'Online' ? 'status-badge status-verified' : 'status-badge status-error';
+                const lengthText = node.status === 'Online' ? node.chain_length : '--';
+                
+                tr.innerHTML = `
+                    <td style="padding: 1rem; border-bottom: 1px solid var(--border-color); font-weight: 500;">Node ${node.id}</td>
+                    <td style="padding: 1rem; border-bottom: 1px solid var(--border-color); font-family: monospace; color: var(--text-muted);">${node.port}</td>
+                    <td style="padding: 1rem; border-bottom: 1px solid var(--border-color);"><span class="${statusClass}">${node.status}</span></td>
+                    <td style="padding: 1rem; border-bottom: 1px solid var(--border-color); font-weight: 600; color: var(--primary-teal);">${lengthText}</td>
+                `;
+                tbody.appendChild(tr);
+            });
+        }
+
+        const initialData = {
+            nodes: {{ nodes|tojson|safe }},
+            consensus_healthy: {{ consensus_healthy|tojson|safe }}
+        };
+        renderNetworkStatus(initialData);
+
+        async function fetchNetworkStatus() {
+            window.location.reload();
+        }
+
+        fetchNetworkStatus();
+        refreshBtn.addEventListener('click', fetchNetworkStatus);
+    });
+</script>
+{% endblock %}

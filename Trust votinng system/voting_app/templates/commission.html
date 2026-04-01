@@ -83,19 +83,17 @@
         const resultsSection = document.getElementById('results-section');
 
         if (demoKeyBtn && !demoKeyBtn.disabled) {
-            demoKeyBtn.addEventListener('click', async () => {
-                try {
-                    const res = await fetch('/api/get_private_key');
-                    const data = await res.json();
-                    pKeyInput.value = data.private_key;
-                } catch(err) {
-                    console.error("Failed to retrieve key");
-                }
+            demoKeyBtn.addEventListener('click', () => {
+                socket.emit('request_private_key');
             });
         }
 
+        socket.on('private_key_response', (data) => {
+            pKeyInput.value = data.private_key;
+        });
+
         if (decryptBtn && !decryptBtn.disabled) {
-            decryptBtn.addEventListener('click', async () => {
+            decryptBtn.addEventListener('click', () => {
                 errorMsg.classList.add('hidden');
                 const key = pKeyInput.value.trim();
 
@@ -104,36 +102,28 @@
                     errorMsg.classList.remove('hidden');
                     return;
                 }
-
-                try {
-                    const res = await fetch('/api/tally', {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ private_key: key })
-                    });
-                    const data = await res.json();
-
-                    if(res.ok) {
-                        if(Array.isArray(data.results)) {
-                            document.getElementById('tally-a').innerText = data.results[0];
-                            document.getElementById('tally-b').innerText = data.results[1];
-                            document.getElementById('tally-c').innerText = data.results[2];
-                            resultsSection.classList.remove('hidden');
-                            inputSection.classList.add('hidden');
-                        } else {
-                            errorMsg.innerText = data.message || "No votes to tally yet.";
-                            errorMsg.classList.remove('hidden');
-                        }
-                    } else {
-                        errorMsg.innerText = data.message || "Decryption failed. Invalid Key.";
-                        errorMsg.classList.remove('hidden');
-                    }
-                } catch (e) {
-                    errorMsg.innerText = "Connection lost to the node.";
-                    errorMsg.classList.remove('hidden');
-                }
+                
+                socket.emit('request_tally', { private_key: key });
             });
         }
+
+        socket.on('tally_response', (data) => {
+            if(data.status === 'success') {
+                if(Array.isArray(data.results)) {
+                    document.getElementById('tally-a').innerText = data.results[0];
+                    document.getElementById('tally-b').innerText = data.results[1];
+                    document.getElementById('tally-c').innerText = data.results[2];
+                    resultsSection.classList.remove('hidden');
+                    inputSection.classList.add('hidden');
+                } else {
+                    errorMsg.innerText = data.message || "No votes to tally yet.";
+                    errorMsg.classList.remove('hidden');
+                }
+            } else {
+                errorMsg.innerText = data.message || "Decryption failed. Invalid Key.";
+                errorMsg.classList.remove('hidden');
+            }
+        });
     });
 </script>
 {% endblock %}

@@ -67,50 +67,52 @@
         const valRes = document.getElementById('validation-result');
         const role = "{{ session.get('role') }}";
         
-        async function loadChain() {
-            container.innerHTML = '<div class="spinner"></div>';
-            try {
-                const res = await fetch('/api/blockchain');
-                const data = await res.json();
+        function renderBlocks(chain) {
+            container.innerHTML = '';
+            // Render from newest to oldest
+            chain.slice().reverse().forEach(block => {
+                const div = document.createElement('div');
+                div.className = 'card';
+                div.style.marginBottom = '0'; // overridden by gap
+                div.style.padding = '1.5rem';
+                div.id = `block-${block.index}`;
                 
-                container.innerHTML = '';
-                // Render from newest to oldest
-                data.chain.slice().reverse().forEach(block => {
-                    const div = document.createElement('div');
-                    div.className = 'card';
-                    div.style.marginBottom = '0'; // overridden by gap
-                    div.style.padding = '1.5rem';
-                    div.id = `block-${block.index}`;
-                    
-                    let editBtnHtml = '';
-                    if (block.index > 0 && role === 'admin') {
-                        editBtnHtml = `<button class="btn outline-btn btn-small" onclick="openHackModal(${block.index}, '${encodeURIComponent(JSON.stringify(block.data))}')">Mutate Data (Hack)</button>`;
-                    }
+                let editBtnHtml = '';
+                if (block.index > 0 && role === 'admin') {
+                    editBtnHtml = `<button class="btn outline-btn btn-small" onclick="openHackModal(${block.index}, '${encodeURIComponent(JSON.stringify(block.data))}')">Mutate Data (Hack)</button>`;
+                }
 
-                    div.innerHTML = `
-                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.5rem;">
-                            <span style="font-weight: 600; color: var(--primary-teal);">Block #${block.index}</span>
-                            ${editBtnHtml}
-                        </div>
-                        <p style="font-family: monospace; font-size: 0.8rem; color: var(--text-muted); word-break: break-all;"><strong>Prev Hash:</strong> ${block.previous_hash}</p>
-                        <p style="font-family: monospace; font-size: 0.8rem; color: var(--text-muted); word-break: break-all;"><strong>Hash:</strong> ${block.hash}</p>
-                        <div class="terminal-box" style="height: auto; margin-top: 0.5rem; white-space: pre-wrap;">${JSON.stringify(block.data, null, 2)}</div>
-                    `;
-                    container.appendChild(div);
-                });
-            } catch (err) {
-                console.error("Failed to load blockchain", err);
-                container.innerHTML = '<p class="message flash-error">Failed to synchronize ledger with the network.</p>';
-            }
+                div.innerHTML = `
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.5rem;">
+                        <span style="font-weight: 600; color: var(--primary-teal);">Block #${block.index}</span>
+                        ${editBtnHtml}
+                    </div>
+                    <p style="font-family: monospace; font-size: 0.8rem; color: var(--text-muted); word-break: break-all;"><strong>Prev Hash:</strong> ${block.previous_hash}</p>
+                    <p style="font-family: monospace; font-size: 0.8rem; color: var(--text-muted); word-break: break-all;"><strong>Hash:</strong> ${block.hash}</p>
+                    <div class="terminal-box" style="height: auto; margin-top: 0.5rem; white-space: pre-wrap;">${JSON.stringify(block.data, null, 2)}</div>
+                `;
+                container.appendChild(div);
+            });
         }
 
-        valBtn.addEventListener('click', async () => {
-            const res = await fetch('/api/validate_chain');
-            const data = await res.json();
-            
+        const initialChain = {{ chain|tojson|safe }};
+        renderBlocks(initialChain);
+
+        async function loadChain() {
+            window.location.reload(); // Refresh via standard GET explorer
+        }
+
+        valBtn.addEventListener('click', () => {
+            valBtn.disabled = true;
+            valBtn.innerText = "Validating...";
             // Clear highlights
             document.querySelectorAll('#blocks-container > div').forEach(c => c.style.borderColor = 'var(--border-color)');
-            
+            socket.emit('request_validation');
+        });
+
+        socket.on('validation_response', (data) => {
+            valBtn.disabled = false;
+            valBtn.innerText = "Validate Entire Chain";
             valRes.classList.remove('hidden');
             if (data.is_valid) {
                 valRes.className = 'message flash-success';
@@ -128,23 +130,25 @@
             }
         });
 
-        document.getElementById('refresh-btn').addEventListener('click', loadChain);
+        document.getElementById('refresh-btn').addEventListener('click', () => window.location.reload());
 
-        document.getElementById('execute-hack-btn').addEventListener('click', async () => {
+        document.getElementById('execute-hack-btn').addEventListener('click', () => {
             const idx = document.getElementById('hack-index').value;
             let payload;
             try {
                 payload = JSON.parse(document.getElementById('hack-data').value);
             } catch(e) { payload = document.getElementById('hack-data').value; }
 
-            await fetch('/api/hack_block', {
-                method: 'POST',
-                headers: {'Content-Type': 'application/json'},
-                body: JSON.stringify({ block_index: parseInt(idx), new_data: payload })
-            });
-
+            socket.emit('request_hack', { block_index: parseInt(idx), new_data: payload });
             document.getElementById('hack-modal').classList.add('hidden');
-            loadChain();
+        });
+
+        socket.on('hack_response', (data) => {
+            if (data.status === 'success') {
+                window.location.reload();
+            } else {
+                alert("Hack failed!");
+            }
         });
 
         window.openHackModal = function(index, dataUri) {
@@ -153,7 +157,7 @@
             document.getElementById('hack-modal').classList.remove('hidden');
         };
 
-        loadChain();
+        // No initial loadChain call needed as it's pre-rendered via Jinja
     });
 </script>
 {% endblock %}

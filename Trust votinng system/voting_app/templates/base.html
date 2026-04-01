@@ -7,6 +7,15 @@
     <!-- Use Inter font -->
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="{{ url_for('static', filename='css/design-system.css') }}">
+    <script src="https://cdn.socket.io/4.5.4/socket.io.min.js"></script>
+    <script>
+        window.BOOTH_CONFIG = {
+            port: {{ current_node_port }},
+            booth_id: {{ current_node_label }},
+            election_state: "{{ election_state }}"
+        };
+        const socket = io();
+    </script>
     {% block extra_head %}{% endblock %}
 </head>
 <body>

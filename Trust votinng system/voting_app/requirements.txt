@@ -3,3 +3,4 @@ requests
 flask-socketio
 flask-session
 qrcode[pil]
+phe
