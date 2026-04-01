@@ -1,0 +1,159 @@
+{% extends 'base.html' %}
+
+{% block top_nav_links %}
+    <a href="{{ url_for('serve_admin') }}">Booth Dashboard</a>
+    {% if session.get('role') == 'admin' %}
+    <a href="{{ url_for('serve_commission') }}">Commission Tally</a>
+    <a href="{{ url_for('serve_network_status') }}">Network Status</a>
+    {% endif %}
+{% endblock %}
+
+{% block header_extra %}
+    <div class="header-extra" style="background: var(--bg-light); padding: 4px 16px; border-bottom: 1px solid var(--border-color); display: flex; justify-content: flex-end; font-size: 0.8rem; align-items: center; gap: 8px;">
+        <span class="live-dot" id="ws-indicator" style="display: none;"></span>
+        <span id="ws-status-text" style="color: var(--text-muted);">WebSocket Offline</span>
+    </div>
+{% endblock %}
+
+{% block content %}
+<section class="card">
+    <div class="card-header">
+        <div>
+            <h3>Chain Integrity Check</h3>
+            <p style="margin-bottom: 0;">Verify that no historical block has been tampered with. Compares hashes cryptographically.</p>
+        </div>
+        <button id="validate-btn" class="btn primary-btn btn-small">Validate Entire Chain</button>
+    </div>
+    
+    <div id="validation-result" class="message hidden"></div>
+</section>
+
+<section class="card">
+    <div class="card-header">
+        <div>
+            <h3>Mined Blocks (Live Ledger)</h3>
+            <p style="margin-bottom: 0;">All transactions secured across the P2P network.</p>
+        </div>
+        <button id="refresh-btn" class="btn outline-btn btn-small">Manual Sync</button>
+    </div>
+    
+    <div id="blocks-container" style="display: flex; flex-direction: column; gap: 1rem;">
+        <!-- Blocks populated here -->
+    </div>
+</section>
+
+<!-- Hack Modal -->
+<div id="hack-modal" class="modal hidden">
+    <div class="modal-content">
+        <div class="modal-header">
+            <h3 style="color: var(--error);">Hacker Simulation: Mutate Block</h3>
+            <button class="close-btn" onclick="document.getElementById('hack-modal').classList.add('hidden')">&times;</button>
+        </div>
+        <div style="padding: 1.5rem;">
+            <p style="margin-bottom: 1rem;">Edit the JSON payload directly. This simulates a bad actor accessing the node's local memory to bypass consensus.</p>
+            <input type="hidden" id="hack-index">
+            <textarea id="hack-data" style="width: 100%; height: 200px; font-family: monospace; padding: 0.5rem;"></textarea>
+            <button id="execute-hack-btn" class="btn danger-btn btn-full" style="margin-top: 1rem;">Inject Malicious Payload</button>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+    document.addEventListener('DOMContentLoaded', () => {
+        const container = document.getElementById('blocks-container');
+        const valBtn = document.getElementById('validate-btn');
+        const valRes = document.getElementById('validation-result');
+        const role = "{{ session.get('role') }}";
+        
+        async function loadChain() {
+            container.innerHTML = '<div class="spinner"></div>';
+            try {
+                const res = await fetch('/api/blockchain');
+                const data = await res.json();
+                
+                container.innerHTML = '';
+                // Render from newest to oldest
+                data.chain.slice().reverse().forEach(block => {
+                    const div = document.createElement('div');
+                    div.className = 'card';
+                    div.style.marginBottom = '0'; // overridden by gap
+                    div.style.padding = '1.5rem';
+                    div.id = `block-${block.index}`;
+                    
+                    let editBtnHtml = '';
+                    if (block.index > 0 && role === 'admin') {
+                        editBtnHtml = `<button class="btn outline-btn btn-small" onclick="openHackModal(${block.index}, '${encodeURIComponent(JSON.stringify(block.data))}')">Mutate Data (Hack)</button>`;
+                    }
+
+                    div.innerHTML = `
+                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.5rem;">
+                            <span style="font-weight: 600; color: var(--primary-teal);">Block #${block.index}</span>
+                            ${editBtnHtml}
+                        </div>
+                        <p style="font-family: monospace; font-size: 0.8rem; color: var(--text-muted); word-break: break-all;"><strong>Prev Hash:</strong> ${block.previous_hash}</p>
+                        <p style="font-family: monospace; font-size: 0.8rem; color: var(--text-muted); word-break: break-all;"><strong>Hash:</strong> ${block.hash}</p>
+                        <div class="terminal-box" style="height: auto; margin-top: 0.5rem; white-space: pre-wrap;">${JSON.stringify(block.data, null, 2)}</div>
+                    `;
+                    container.appendChild(div);
+                });
+            } catch (err) {
+                console.error("Failed to load blockchain", err);
+                container.innerHTML = '<p class="message flash-error">Failed to synchronize ledger with the network.</p>';
+            }
+        }
+
+        valBtn.addEventListener('click', async () => {
+            const res = await fetch('/api/validate_chain');
+            const data = await res.json();
+            
+            // Clear highlights
+            document.querySelectorAll('#blocks-container > div').forEach(c => c.style.borderColor = 'var(--border-color)');
+            
+            valRes.classList.remove('hidden');
+            if (data.is_valid) {
+                valRes.className = 'message flash-success';
+                valRes.innerText = "✅ Validation Passed: The cryptographic chain is completely intact. All block hashes verified.";
+            } else {
+                valRes.className = 'message flash-error';
+                valRes.innerHTML = `❌ <strong>Validation FAILED at Block #${data.broken_block}</strong><br>${data.reason}`;
+                
+                const brokenCard = document.getElementById(`block-${data.broken_block}`);
+                if (brokenCard) {
+                    brokenCard.style.borderColor = 'var(--error)';
+                    brokenCard.style.borderWidth = '2px';
+                    brokenCard.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                }
+            }
+        });
+
+        document.getElementById('refresh-btn').addEventListener('click', loadChain);
+
+        document.getElementById('execute-hack-btn').addEventListener('click', async () => {
+            const idx = document.getElementById('hack-index').value;
+            let payload;
+            try {
+                payload = JSON.parse(document.getElementById('hack-data').value);
+            } catch(e) { payload = document.getElementById('hack-data').value; }
+
+            await fetch('/api/hack_block', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({ block_index: parseInt(idx), new_data: payload })
+            });
+
+            document.getElementById('hack-modal').classList.add('hidden');
+            loadChain();
+        });
+
+        window.openHackModal = function(index, dataUri) {
+            document.getElementById('hack-index').value = index;
+            document.getElementById('hack-data').value = JSON.stringify(JSON.parse(decodeURIComponent(dataUri)), null, 2);
+            document.getElementById('hack-modal').classList.remove('hidden');
+        };
+
+        loadChain();
+    });
+</script>
+{% endblock %}

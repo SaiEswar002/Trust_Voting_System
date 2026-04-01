@@ -1,0 +1,137 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Election Commission Tally</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="/static/style.css">
+    <script src="/static/network.js"></script>
+</head>
+<body>
+    <header class="gov-header" style="background-color: #3f3f46;">
+        <div class="header-content">
+            <div class="logo-text">
+                <h1>Independent Election Commission</h1>
+                <span>Final Cryptographic Decryption</span>
+            </div>
+            <nav class="top-nav">
+                <a href="/">Election Booth</a>
+            </nav>
+        </div>
+    </header>
+
+    <main class="container" style="margin-top: 3rem;">
+        <section class="card" id="input-section">
+            <h3>Homomorphic Tally Decryption</h3>
+            <p>Insert the designated Election Commission Private Key to decrypt the sum of all mathematical votes securely.</p>
+            
+            <div class="form-group">
+                <div class="input-field">
+                    <label>Private Decryption Key (Asymmetric)</label>
+                    <input type="text" id="private-key" placeholder="Enter private key string...">
+                </div>
+                <button id="decrypt-btn" class="btn primary-btn btn-full">Compute & Decrypt Final Results</button>
+            </div>
+            <div id="error-msg" class="message error hidden" style="margin-top: 1rem;"></div>
+
+            <!-- Demo helper -->
+            <div style="margin-top: 2rem; border-top: 1px solid var(--border-color); padding-top: 1rem; text-align: center;">
+                <p style="font-size: 0.8rem; color: var(--text-muted); margin-bottom: 0.5rem;">For demo purposes, you can retrieve the randomly generated key from memory.</p>
+                <button id="demo-key-btn" class="btn text-btn">Copy Local Key Array to Input</button>
+            </div>
+        </section>
+
+        <!-- Results Section -->
+        <section class="card hidden" id="results-section">
+            <div class="success-banner">
+                <h4>Official Results Computed</h4>
+            </div>
+            
+            <div class="candidates-grid" style="grid-template-columns: 1fr; gap: 1rem;">
+                <div class="candidate-card" style="display: flex; justify-content: space-between; align-items: center; padding: 1.5rem;">
+                    <div style="display: flex; align-items: center; gap: 1rem;">
+                        <div class="party-color p-a" style="margin: 0;"></div>
+                        <h4>Party A</h4>
+                    </div>
+                    <h2 style="font-size: 2rem; color: var(--primary-teal);" id="tally-a">0</h2>
+                </div>
+                
+                <div class="candidate-card" style="display: flex; justify-content: space-between; align-items: center; padding: 1.5rem;">
+                    <div style="display: flex; align-items: center; gap: 1rem;">
+                        <div class="party-color p-b" style="margin: 0;"></div>
+                        <h4>Party B</h4>
+                    </div>
+                    <h2 style="font-size: 2rem; color: var(--primary-teal);" id="tally-b">0</h2>
+                </div>
+                
+                <div class="candidate-card" style="display: flex; justify-content: space-between; align-items: center; padding: 1.5rem;">
+                    <div style="display: flex; align-items: center; gap: 1rem;">
+                        <div class="party-color p-c" style="margin: 0;"></div>
+                        <h4>Party C</h4>
+                    </div>
+                    <h2 style="font-size: 2rem; color: var(--primary-teal);" id="tally-c">0</h2>
+                </div>
+            </div>
+        </section>
+    </main>
+
+    <script>
+        document.addEventListener('DOMContentLoaded', () => {
+            const decryptBtn = document.getElementById('decrypt-btn');
+            const demoKeyBtn = document.getElementById('demo-key-btn');
+            const pKeyInput = document.getElementById('private-key');
+            const errorMsg = document.getElementById('error-msg');
+            
+            const inputSection = document.getElementById('input-section');
+            const resultsSection = document.getElementById('results-section');
+
+            demoKeyBtn.addEventListener('click', async () => {
+                const res = await fetch('/api/get_private_key');
+                const data = await res.json();
+                pKeyInput.value = data.private_key;
+            });
+
+            decryptBtn.addEventListener('click', async () => {
+                errorMsg.classList.add('hidden');
+                const key = pKeyInput.value.trim();
+
+                if(!key) {
+                    errorMsg.innerText = "Please provide the Private Key.";
+                    errorMsg.classList.remove('hidden');
+                    return;
+                }
+
+                // Call Tally API with Private Key
+                try {
+                    const res = await fetch('/api/tally', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ private_key: key })
+                    });
+                    const data = await res.json();
+
+                    if(res.ok) {
+                        if(Array.isArray(data.results)) {
+                            document.getElementById('tally-a').innerText = data.results[0];
+                            document.getElementById('tally-b').innerText = data.results[1];
+                            document.getElementById('tally-c').innerText = data.results[2];
+                            resultsSection.classList.remove('hidden');
+                            inputSection.classList.add('hidden');
+                        } else {
+                            errorMsg.innerText = data.message || "No votes to tally yet.";
+                            errorMsg.classList.remove('hidden');
+                        }
+                    } else {
+                        errorMsg.innerText = data.message || "Server error occurred during decryption.";
+                        errorMsg.classList.remove('hidden');
+                    }
+                } catch (e) {
+                    errorMsg.innerText = "Connection lost. Please ensure the network nodes are online.";
+                    errorMsg.classList.remove('hidden');
+                }
+            });
+        });
+    </script>
+</body>
+</html>

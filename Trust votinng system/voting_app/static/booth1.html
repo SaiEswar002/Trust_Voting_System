@@ -1,0 +1,151 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>National Secure Electronic Voting Portal</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+
+    <header class="gov-header">
+        <div class="header-content">
+            <div class="logo">
+                <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
+                </svg>
+                <div class="logo-text">
+                    <h1>Department of Elections</h1>
+                    <span>Secure Voting Infrastructure</span>
+                </div>
+            </div>
+            <nav class="top-nav">
+                <a href="#">Information</a>
+                <a href="#">Security</a>
+                <a href="#">Results</a>
+            </nav>
+        </div>
+    </header>
+
+    <div class="hero">
+        <div class="hero-overlay"></div>
+        <div class="hero-content">
+            <h2>Welcome to Secure Decentralized Voting</h2>
+            <p>Your vote is cryptographically secured, homomorphically encrypted, and immutable.</p>
+        </div>
+    </div>
+
+    <main class="container">
+        <!-- Step 1 & 2: Authentication -->
+        <section id="auth-section" class="active card">
+            <div class="card-header">
+                <div class="step-badge">Step 1 & 2</div>
+                <h3>Arrival & Identification</h3>
+            </div>
+            <p>Please provide your Voter ID and enter your pre-computed fingerprint hash for verification.</p>
+            
+            <form id="auth-form" class="form-group">
+                <div class="input-field">
+                    <label for="voter-id">Voter ID</label>
+                    <input type="text" id="voter-id" placeholder="e.g. V1, V2, V3" required>
+                </div>
+                
+                <div class="input-field">
+                    <label for="fingerprint_hash">Fingerprint Hash</label>
+                    <input type="text" id="fingerprint_hash" placeholder="Enter your fingerprint hash" required>
+                </div>
+                
+                <button type="submit" class="btn primary-btn btn-full" id="auth-btn">Authenticate & Authorize</button>
+                <div id="auth-message" class="message"></div>
+            </form>
+        </section>
+
+        <!-- Step 3 & 4: Voting & Encryption -->
+        <section id="voting-section" class="card hidden">
+            <div class="card-header">
+                <div class="step-badge">Step 3 & 4</div>
+                <h3>The Selection Booth</h3>
+            </div>
+            <p>Select your candidate. Your selection will be converted into a mathematical vector and <strong>Homomorphically Encrypted</strong> before leaving this machine.</p>
+            
+            <div class="candidates-grid">
+                <div class="candidate-card" data-index="0">
+                    <div class="party-color p-a"></div>
+                    <h4>Party A</h4>
+                </div>
+                <div class="candidate-card" data-index="1">
+                    <div class="party-color p-b"></div>
+                    <h4>Party B</h4>
+                </div>
+                <div class="candidate-card" data-index="2">
+                    <div class="party-color p-c"></div>
+                    <h4>Party C</h4>
+                </div>
+            </div>
+
+            <div class="input-field">
+                <label for="vote_fingerprint_hash">Confirm Fingerprint Hash</label>
+                <input type="text" id="vote_fingerprint_hash" placeholder="Re-enter your fingerprint hash" required>
+            </div>
+
+            <div id="confirm-box" class="hidden">
+                <p>Confirm vote for <span id="selected-party"></span>?</p>
+                <button id="encrypt-btn" class="btn primary-btn btn-full">Confirm & Encrypt Vote</button>
+            </div>
+        </section>
+
+        <!-- Processing State (Step 4, 5, 6) -->
+        <section id="processing-section" class="card hidden text-center">
+            <div class="spinner"></div>
+            <h3 id="process-title">Securing your vote...</h3>
+            <div class="terminal-box" id="terminal-logs">
+                <p>> Initializing Homomorphic Encryption...</p>
+            </div>
+        </section>
+
+        <!-- Step 7: Receipt -->
+        <section id="receipt-section" class="card hidden">
+             <div class="card-header">
+                <div class="step-badge">Step 7</div>
+                <h3>Departure</h3>
+            </div>
+            <div class="success-banner">
+                <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
+                <h4>Vote Successfully Secured</h4>
+            </div>
+            <p>Your encrypted vote is now permanently secured on the blockchain.</p>
+            
+            <div class="receipt-box">
+                <p class="label">Receipt ID</p>
+                <p class="receipt-id" id="display-receipt-id">---</p>
+                <div class="qr-placeholder"></div>
+            </div>
+            
+            <button id="reset-btn" class="btn outline-btn btn-full">Reset Booth for Next Voter</button>
+        </section>
+
+        <!-- Actions -->
+        <div class="admin-actions">
+            <button id="view-chain-btn" class="btn text-btn">View Blockchain State</button>
+            <button id="tally-btn" class="btn text-btn">Compute Final Tally</button>
+        </div>
+
+        <!-- Modals -->
+        <div id="data-modal" class="modal hidden">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h3 id="modal-title">Data</h3>
+                    <button id="close-modal" class="close-btn">&times;</button>
+                </div>
+                <pre id="modal-body" class="json-display"></pre>
+            </div>
+        </div>
+
+    </main>
+
+    <a href="#" id="power-cut-btn" style="position: fixed; bottom: 10px; right: 10px; font-size: 10px; color: #94a3b8; text-decoration: none; opacity: 0.5; z-index: 1000;">[Simulate Power Cut]</a>
+
+    <script src="/static/app.js"></script>
+</body>
+</html>

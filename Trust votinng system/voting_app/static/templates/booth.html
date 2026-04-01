@@ -1,0 +1,126 @@
+{% extends 'base.html' %}
+
+{% block content %}
+<!-- State Message when Voting is not Active -->
+{% if election_state != 'ACTIVE' %}
+<section class="card text-center" style="margin-top: 2rem;">
+    <h2 style="color: var(--primary-teal); margin-bottom: 1rem;">Voting Booth Closed</h2>
+    <p>The current election state is <strong>{{ election_state }}</strong>.</p>
+    {% if election_state == 'REGISTRATION' %}
+        <p>We are currently establishing the voting registry. Please return once the election begins.</p>
+    {% elif election_state == 'CLOSED' %}
+        <p>The polling period has concluded. Computing final results...</p>
+    {% elif election_state == 'TALLIED' %}
+        <p>Results have been published. Please check the commission portal or results tab.</p>
+    {% endif %}
+</section>
+{% else %}
+
+<!-- Step 1 & 2: Authentication -->
+<section id="auth-section" class="active card">
+    <div class="card-header">
+        <div style="display: flex; flex-direction: column;">
+            <div class="step-badge">Phase 1</div>
+            <h3>Voter Authentication</h3>
+        </div>
+    </div>
+    <p>Please enter your biometric hash securely generated at the check-in desk.</p>
+    
+    <form id="auth-form" class="form-group">
+        <input type="hidden" id="voter-id" value="{{ session.get('username') }}">
+        <div class="input-field">
+            <label for="fingerprint_hash">Fingerprint Hash string</label>
+            <input type="password" id="fingerprint_hash" placeholder="Enter biometric credentials" required>
+        </div>
+        
+        <button type="submit" class="btn primary-btn btn-full" id="auth-btn">Authorize Terminal</button>
+        <div id="auth-message" class="message hidden"></div>
+    </form>
+</section>
+
+<!-- Step 3 & 4: Voting & Encryption -->
+<section id="voting-section" class="card hidden">
+    <div class="card-header">
+        <div style="display: flex; flex-direction: column;">
+            <div class="step-badge">Phase 2</div>
+            <h3>The Selection Matrix</h3>
+        </div>
+    </div>
+    <p>Select your candidate. Your selection will be converted into a mathematical vector and <strong>Homomorphically Encrypted</strong> before leaving your machine.</p>
+    
+    <div class="candidates-grid">
+        <div class="candidate-card" data-index="0">
+            <div class="party-color p-a"></div>
+            <h4>Party A</h4>
+        </div>
+        <div class="candidate-card" data-index="1">
+            <div class="party-color p-b"></div>
+            <h4>Party B</h4>
+        </div>
+        <div class="candidate-card" data-index="2">
+            <div class="party-color p-c"></div>
+            <h4>Party C</h4>
+        </div>
+    </div>
+
+    <div class="input-field" style="margin-bottom: 1.5rem;">
+        <label for="vote_fingerprint_hash">Digital Signature Confirmation</label>
+        <input type="password" id="vote_fingerprint_hash" placeholder="Re-enter your biometric credentials" required>
+    </div>
+
+    <div id="confirm-box" class="hidden text-center">
+        <p style="margin-bottom: 1rem;">Confirm irreversible vote layout for <strong id="selected-party" style="color: var(--primary-teal);"></strong>?</p>
+        <button id="encrypt-btn" class="btn primary-btn btn-full">Sign & Cast Ballot</button>
+    </div>
+</section>
+
+<!-- Processing State (Step 4, 5, 6) -->
+<section id="processing-section" class="card hidden text-center">
+    <div class="spinner"></div>
+    <h3 id="process-title" style="color: var(--primary-teal);">Zero-Knowledge Securing...</h3>
+    <div class="terminal-box" id="terminal-logs">
+        <p>> Initializing Homomorphic Encryption...</p>
+    </div>
+</section>
+
+<!-- Step 7: Receipt -->
+<section id="receipt-section" class="card hidden">
+    <div class="card-header">
+        <div style="display: flex; flex-direction: column;">
+            <div class="step-badge">Phase 3</div>
+            <h3>Audit Trail Departure</h3>
+        </div>
+    </div>
+    <div class="success-banner">
+        <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="margin-bottom: 0.5rem;"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
+        <h4>Vote Successfully Secured</h4>
+    </div>
+    <p class="text-center" style="margin-bottom: 1.5rem;">Your encrypted vote is now permanently secured on the P2P blockchain.</p>
+    
+    <div class="receipt-box" id="receipt-card-body">
+        <p class="label">Cryptographic Receipt ID</p>
+        <p class="receipt-id" id="display-receipt-id">---</p>
+        
+        <!-- We'll populate the QR image dynamically from base64 returned by server -->
+        <img id="qr-code-img" src="" alt="Receipt QR Code" style="display: none; margin: 1.5rem auto; width: 140px; height: 140px; border-radius: 4px;">
+        <div class="qr-placeholder" id="qr-placeholder"></div>
+        
+    </div>
+    
+    <div class="admin-actions" style="margin-top: 2rem;">
+        <button id="print-btn" class="btn outline-btn" onclick="window.print()">Print Receipt</button>
+        <a href="" id="verify-receipt-link" class="btn text-btn" target="_blank">Verify this receipt &raquo;</a>
+    </div>
+
+    <!-- Power cut reset trigger can just reload the booth -->
+    <a href="/" class="btn text-btn btn-full" style="margin-top: 2rem;">Reset Booth for Next Voter</a>
+</section>
+
+{% endif %}
+{% endblock %}
+
+{% block scripts %}
+{% if election_state == 'ACTIVE' %}
+<script src="{{ url_for('static', filename='js/app.js') }}"></script>
+{% endif %}
+{% endblock %}

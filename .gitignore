@@ -1,0 +1,15 @@
+.venv/
+__pycache__/
+*.pyc
+*.pyo
+venv/
+env/
+.env
+*.log
+*.sqlite
+*.db
+.idea/
+.vscode/
+node_modules/
+dist/
+build/

@@ -1,0 +1,162 @@
+{% extends 'base.html' %}
+
+{% block top_nav_links %}
+    <a href="{{ url_for('serve_explorer') }}">Ledger Explorer</a>
+    {% if session.get('role') == 'admin' %}
+    <a href="{{ url_for('serve_commission') }}">Commission Tally</a>
+    <a href="{{ url_for('serve_network_status') }}">Network Status</a>
+    {% endif %}
+{% endblock %}
+
+{% block header_extra %}
+    <div class="header-extra" style="background: var(--bg-light); padding: 4px 16px; border-bottom: 1px solid var(--border-color); display: flex; justify-content: flex-end; font-size: 0.8rem; align-items: center; gap: 8px;">
+        <span class="live-dot" id="ws-indicator" style="display: none;"></span>
+        <span id="ws-status-text" style="color: var(--text-muted);">WebSocket Offline</span>
+    </div>
+{% endblock %}
+
+{% block content %}
+<div style="display: flex; gap: 2rem; flex-wrap: wrap;">
+    <!-- Main Voter List -->
+    <section class="card" style="flex: 2; min-width: 400px;">
+        <div class="card-header">
+            <div>
+                <h3>Registered Voters Live Status</h3>
+                <p style="margin-bottom: 0;">Monitors biometric verification and voting activity in real-time.</p>
+            </div>
+            <button id="refresh-voters-btn" class="btn outline-btn btn-small">Manual Refresh</button>
+        </div>
+        
+        <table style="width: 100%; border-collapse: collapse; margin-top: 1rem;">
+            <thead>
+                <tr>
+                    <th style="padding: 1rem; text-align: left; border-bottom: 1px solid var(--border-color); background: var(--bg-light); font-weight: 600;">Voter ID</th>
+                    <th style="padding: 1rem; text-align: left; border-bottom: 1px solid var(--border-color); background: var(--bg-light); font-weight: 600;">Fingerprint Hash</th>
+                    <th style="padding: 1rem; text-align: left; border-bottom: 1px solid var(--border-color); background: var(--bg-light); font-weight: 600;">Status</th>
+                </tr>
+            </thead>
+            <tbody id="voter-tbody">
+                <!-- Populated dynamically via JS / WebSocket -->
+            </tbody>
+        </table>
+    </section>
+
+    <!-- Side Panel: Election Controls (Admin Only) -->
+    <div style="flex: 1; min-width: 300px; display: flex; flex-direction: column; gap: 1.5rem;">
+        <section class="card">
+            <h3 style="margin-bottom: 1rem; font-size: 1.1rem;">Booth Information</h3>
+            <p><strong>Node Port:</strong> {{ current_node_port }}</p>
+            <p><strong>Assigned Booth:</strong> Booth {{ current_node_label }}</p>
+            <p><strong>Current Active Officer:</strong> {{ session.get('username') }}</p>
+        </section>
+
+        {% if session.get('role') == 'admin' %}
+        <section class="card" style="border-color: var(--accent-gold);">
+            <div class="card-header" style="margin-bottom: 1rem; padding-bottom: 0.5rem;">
+                <h3 style="font-size: 1.1rem; color: #b45309;">Election Lifecycle Controls</h3>
+            </div>
+            <p style="font-size: 0.85rem; margin-bottom: 1rem;">Current State: <span id="control-election-state" class="status-badge status-{{ election_state|lower }}">{{ election_state }}</span></p>
+            
+            <div id="state-controls" style="display: flex; flex-direction: column; gap: 0.5rem;">
+                {% if election_state == 'REGISTRATION' %}
+                    <button class="btn primary-btn btn-full state-transition-btn" data-next="ACTIVE">Open Voting (Transition to ACTIVE)</button>
+                {% elif election_state == 'ACTIVE' %}
+                    <button class="btn danger-btn btn-full state-transition-btn" data-next="CLOSED">Close Polls (Transition to CLOSED)</button>
+                {% elif election_state == 'CLOSED' %}
+                    <button class="btn primary-btn btn-full state-transition-btn" data-next="TALLIED">Run Final Tally (Transition to TALLIED)</button>
+                {% elif election_state == 'TALLIED' %}
+                    <p style="color: var(--success); font-weight: 500; text-align: center;">Election Complete</p>
+                {% endif %}
+                
+                <div style="margin-top: 1.5rem; border-top: 1px solid var(--border-color); padding-top: 1rem; text-align: center;">
+                    <button id="master-reset-btn" class="btn text-btn" style="color: var(--error); font-size: 0.8rem; text-decoration: underline;">Master Reset (Wipe Everything)</button>
+                </div>
+            </div>
+        </section>
+        {% endif %}
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+    document.addEventListener('DOMContentLoaded', () => {
+        const tbody = document.getElementById('voter-tbody');
+        
+        async function loadVoters() {
+            try {
+                const res = await fetch('/api/voters');
+                const data = await res.json();
+                
+                tbody.innerHTML = '';
+                data.forEach(voter => {
+                    const tr = document.createElement('tr');
+                    tr.id = `voter-row-${voter.voter_id}`;
+                    
+                    const statusClass = voter.has_voted ? 'status-badge status-cast' : 'status-badge status-awaiting';
+                    const statusText = voter.has_voted ? 'Vote Cast' : 'Awaiting Vote';
+                    
+                    tr.innerHTML = `
+                        <td style="padding: 1rem; border-bottom: 1px solid var(--border-color); font-weight: 500;">${voter.voter_id}</td>
+                        <td style="padding: 1rem; border-bottom: 1px solid var(--border-color); font-family: monospace; font-size: 0.8rem; color: var(--text-muted);">${voter.fingerprint_hash}</td>
+                        <td style="padding: 1rem; border-bottom: 1px solid var(--border-color);"><span id="voter-status-${voter.voter_id}" class="${statusClass}">${statusText}</span></td>
+                    `;
+                    tbody.appendChild(tr);
+                });
+            } catch (e) {
+                console.error("Error fetching voters:", e);
+            }
+        }
+
+        loadVoters();
+        
+        document.getElementById('refresh-voters-btn').addEventListener('click', loadVoters);
+
+        // State Transitions
+        document.querySelectorAll('.state-transition-btn').forEach(btn => {
+            btn.addEventListener('click', async (e) => {
+                const nextState = e.target.getAttribute('data-next');
+                if(confirm(`Are you sure you want to transition the election to ${nextState}? This action cannot be easily undone.`)) {
+                    try {
+                        const res = await fetch('/api/admin/transition_state', {
+                            method: 'POST',
+                            headers: {'Content-Type': 'application/json'},
+                            body: JSON.stringify({ new_state: nextState })
+                        });
+                        const data = await res.json();
+                        if (res.ok) {
+                            window.location.reload();
+                        } else {
+                            alert("Error: " + data.message);
+                        }
+                    } catch (err) {
+                        console.error(err);
+                        alert("Failed to transition state.");
+                    }
+                }
+            });
+        });
+
+        // Master Reset
+        const resetBtn = document.getElementById('master-reset-btn');
+        if (resetBtn) {
+            resetBtn.addEventListener('click', async () => {
+                if(confirm("🚨 WARNING: This will completely WIPE the blockchain, all vote history, and reset the election to REGISTRATION mode. This cannot be undone. Proceed?")) {
+                    try {
+                        const res = await fetch('/api/admin/reset_election', { method: 'POST' });
+                        if (res.ok) {
+                            window.location.href = '/admin'; // Force reload/redirect to refresh state
+                        } else {
+                            const data = await res.json();
+                            alert("Reset Failed: " + data.message);
+                        }
+                    } catch (err) {
+                        alert("Network error during reset.");
+                    }
+                }
+            });
+        }
+    });
+</script>
+<!-- We will add WebSocket JS later in Section 4 -->
+{% endblock %}

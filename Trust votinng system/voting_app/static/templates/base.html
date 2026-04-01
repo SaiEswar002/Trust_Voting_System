@@ -1,0 +1,71 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>National Secure Electronic Voting Portal</title>
+    <!-- Use Inter font -->
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/design-system.css') }}">
+    {% block extra_head %}{% endblock %}
+</head>
+<body>
+    <header class="gov-header">
+        <div class="header-content">
+            <div class="logo">
+                <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
+                </svg>
+                <div class="logo-text">
+                    <h1>Department of Elections</h1>
+                    <span>True P2P Network Node</span>
+                </div>
+            </div>
+            
+            <nav class="top-nav nav-right">
+                {% block top_nav_links %}{% endblock %}
+                <!-- Role badge and nav -->
+                {% if session.get('role') %}
+                    <span class="role-badge role-{{ session.get('role') }}">{{ session.get('role')|title }}</span>
+                    <span class="booth-label">Booth {{ current_node_label }}</span>
+                    {% if session.get('role') != 'user' %}
+                        <span class="username-label">{{ session.get('username') }}</span>
+                    {% endif %}
+                    <a href="{{ url_for('logout') }}" class="btn text-btn btn-small">Logout</a>
+                {% else %}
+                    <span class="booth-label">Booth {{ current_node_label }}</span>
+                    <a href="{{ url_for('login_page') }}" class="btn text-btn btn-small">Login</a>
+                {% endif %}
+            </nav>
+        </div>
+        <!-- Election Status, WebSocket LIVE indicator (if applicable) -->
+        {% block header_extra %}{% endblock %}
+    </header>
+
+    <!-- Flash message banner slot -->
+    <div class="flash-container">
+        {% with messages = get_flashed_messages(with_categories=true) %}
+            {% if messages %}
+                {% for category, message in messages %}
+                    <div class="flash-message flash-{{ category }}">{{ message }}</div>
+                {% endfor %}
+            {% endif %}
+        {% endwith %}
+    </div>
+
+    <main class="container">
+        {% block content %}{% endblock %}
+    </main>
+
+    <footer class="gov-footer">
+        <div class="footer-content">
+            <span class="footer-item">Node Port: {{ current_node_port }}</span>
+            <span class="footer-item">Chain Length: <span id="footer-chain-length">{{ chain_length | default('0') }}</span></span>
+            <span class="footer-item">Election Status: <span id="header-election-status" class="status-badge status-{{ election_state|lower }}">{{ election_state|default('UNKNOWN') }}</span></span>
+        </div>
+    </footer>
+
+    <script src="{{ url_for('static', filename='js/network.js') }}"></script>
+    {% block scripts %}{% endblock %}
+</body>
+</html>

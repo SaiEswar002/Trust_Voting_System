@@ -1,0 +1,75 @@
+{% extends 'base.html' %}
+
+{% block content %}
+<div class="card" style="max-width: 500px; margin: 4rem auto;">
+    <div class="card-header">
+        <h3>Portal Access</h3>
+    </div>
+    
+    <p style="margin-bottom: 2rem;">Select your clearance level and authenticate to enter the infrastructure network.</p>
+    
+    <form method="POST" action="{{ url_for('login_page') }}" class="form-group">
+        <div class="input-field">
+            <label for="role">Clearance Role</label>
+            <select name="role" id="role-select" style="padding: 0.75rem; border: 1px solid var(--border-color); border-radius: 6px;" required>
+                <option value="user">Voter / Citizen</option>
+                <option value="worker">Booth Officer</option>
+                <option value="admin">Election Commission</option>
+            </select>
+        </div>
+
+        <!-- Dynamic User Fields -->
+        <div id="user-fields" class="form-group" style="margin-top: 1rem;">
+            <div class="input-field">
+                <label for="voter_id">Voter ID</label>
+                <input type="text" name="voter_id" id="voter_id" placeholder="e.g. V1, V2">
+            </div>
+            <div class="input-field">
+                <label for="fingerprint_hash">Biometric Hash (PIN)</label>
+                <input type="password" name="fingerprint_hash" id="fingerprint_hash" placeholder="Enter biometric credentials">
+            </div>
+        </div>
+
+        <!-- Dynamic Officer/Admin Fields -->
+        <div id="staff-fields" class="form-group hidden" style="margin-top: 1rem;">
+            <div class="input-field">
+                <label for="username">Staff Username</label>
+                <input type="text" name="username" id="username" placeholder="Enter issued username">
+            </div>
+            <div class="input-field">
+                <label for="password">Password / PIN</label>
+                <input type="password" name="password" id="password" placeholder="Enter credentials">
+            </div>
+            <!-- Admin Only: Master Key (Optional for login, or we can just require password. Prompt says: "Username + password + master private key (for /commission only)". So Master key is probably entered later on the /commission panel, or we can add it here if it's strictly for admin login. Let's make it simple here, since /commission is specifically for homomorphic tally) -->
+        </div>
+        
+        <button type="submit" class="btn primary-btn btn-full" style="margin-top: 1rem;">Authenticate</button>
+    </form>
+</div>
+
+<script>
+    document.addEventListener("DOMContentLoaded", () => {
+        const roleSelect = document.getElementById("role-select");
+        const userFields = document.getElementById("user-fields");
+        const staffFields = document.getElementById("staff-fields");
+        
+        roleSelect.addEventListener("change", (e) => {
+            if (e.target.value === 'user') {
+                userFields.classList.remove("hidden");
+                staffFields.classList.add("hidden");
+                
+                // Clear staff fields
+                document.getElementById('username').value = "";
+                document.getElementById('password').value = "";
+            } else {
+                userFields.classList.add("hidden");
+                staffFields.classList.remove("hidden");
+                
+                // Clear user fields
+                document.getElementById('voter_id').value = "";
+                document.getElementById('fingerprint_hash').value = "";
+            }
+        });
+    });
+</script>
+{% endblock %}

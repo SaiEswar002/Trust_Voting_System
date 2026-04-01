@@ -1,0 +1,139 @@
+{% extends 'base.html' %}
+
+{% block top_nav_links %}
+    <a href="{{ url_for('serve_admin') }}">Booth Dashboard</a>
+    <a href="{{ url_for('serve_explorer') }}">Ledger Explorer</a>
+    <a href="{{ url_for('serve_network_status') }}">Network Status</a>
+{% endblock %}
+
+{% block content %}
+<div class="card" id="input-section" style="max-width: 600px; margin: 2rem auto;">
+    <div class="card-header">
+        <h3>Homomorphic Tally Decryption</h3>
+    </div>
+    
+    {% if election_state != 'CLOSED' and election_state != 'TALLIED' %}
+    <div class="message flash-warning" style="margin-bottom: 1.5rem;">
+        The election is currently <strong>{{ election_state }}</strong>. You can only run the final homomorphic tally once the election state is CLOSED.
+    </div>
+    {% endif %}
+
+    <p style="margin-bottom: 2rem;">Insert the designated Election Commission Master Private Key to decrypt the sum of all mathematical votes securely.</p>
+    
+    <div class="form-group">
+        <div class="input-field">
+            <label for="private-key">Private Decryption Key (Asymmetric)</label>
+            <input type="password" id="private-key" placeholder="Enter master private key string..." {% if election_state not in ['CLOSED', 'TALLIED'] %}disabled{% endif %}>
+        </div>
+        <button id="decrypt-btn" class="btn primary-btn btn-full" {% if election_state not in ['CLOSED', 'TALLIED'] %}disabled{% endif %}>Compute & Decrypt Final Results</button>
+    </div>
+    <div id="error-msg" class="message flash-error hidden" style="margin-top: 1rem;"></div>
+
+    <!-- Demo helper -->
+    <div style="margin-top: 2rem; border-top: 1px solid var(--border-color); padding-top: 1rem; text-align: center;">
+        <p style="font-size: 0.85rem; color: var(--text-muted); margin-bottom: 0.5rem;">For demo purposes, you can retrieve the randomly generated key from the current node memory.</p>
+        <button id="demo-key-btn" class="btn text-btn" {% if election_state not in ['CLOSED', 'TALLIED'] %}disabled{% endif %}>Copy Node Memory Key to Input</button>
+    </div>
+</div>
+
+<!-- Results Section -->
+<div class="card hidden" id="results-section" style="max-width: 600px; margin: 2rem auto;">
+    <div class="success-banner">
+        <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="margin-bottom: 0.5rem;"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
+        <h4 style="color: var(--success); font-size: 1.25rem;">Official Results Computed</h4>
+    </div>
+    
+    <div class="candidates-grid" style="grid-template-columns: 1fr; gap: 1rem; margin-top: 1.5rem;">
+        <div class="candidate-card" style="display: flex; justify-content: space-between; align-items: center; padding: 1.5rem; text-align: left;">
+            <div style="display: flex; align-items: center; gap: 1rem;">
+                <div class="party-color p-a" style="margin: 0; width: 24px; height: 24px;"></div>
+                <h4 style="font-size: 1.1rem;">Party A</h4>
+            </div>
+            <h2 style="font-size: 2rem; color: var(--primary-teal);" id="tally-a">0</h2>
+        </div>
+        
+        <div class="candidate-card" style="display: flex; justify-content: space-between; align-items: center; padding: 1.5rem; text-align: left;">
+            <div style="display: flex; align-items: center; gap: 1rem;">
+                <div class="party-color p-b" style="margin: 0; width: 24px; height: 24px;"></div>
+                <h4 style="font-size: 1.1rem;">Party B</h4>
+            </div>
+            <h2 style="font-size: 2rem; color: var(--primary-teal);" id="tally-b">0</h2>
+        </div>
+        
+        <div class="candidate-card" style="display: flex; justify-content: space-between; align-items: center; padding: 1.5rem; text-align: left;">
+            <div style="display: flex; align-items: center; gap: 1rem;">
+                <div class="party-color p-c" style="margin: 0; width: 24px; height: 24px;"></div>
+                <h4 style="font-size: 1.1rem;">Party C</h4>
+            </div>
+            <h2 style="font-size: 2rem; color: var(--primary-teal);" id="tally-c">0</h2>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+    document.addEventListener('DOMContentLoaded', () => {
+        const decryptBtn = document.getElementById('decrypt-btn');
+        const demoKeyBtn = document.getElementById('demo-key-btn');
+        const pKeyInput = document.getElementById('private-key');
+        const errorMsg = document.getElementById('error-msg');
+        
+        const inputSection = document.getElementById('input-section');
+        const resultsSection = document.getElementById('results-section');
+
+        if (demoKeyBtn && !demoKeyBtn.disabled) {
+            demoKeyBtn.addEventListener('click', async () => {
+                try {
+                    const res = await fetch('/api/get_private_key');
+                    const data = await res.json();
+                    pKeyInput.value = data.private_key;
+                } catch(err) {
+                    console.error("Failed to retrieve key");
+                }
+            });
+        }
+
+        if (decryptBtn && !decryptBtn.disabled) {
+            decryptBtn.addEventListener('click', async () => {
+                errorMsg.classList.add('hidden');
+                const key = pKeyInput.value.trim();
+
+                if(!key) {
+                    errorMsg.innerText = "Please provide the Master Private Key.";
+                    errorMsg.classList.remove('hidden');
+                    return;
+                }
+
+                try {
+                    const res = await fetch('/api/tally', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ private_key: key })
+                    });
+                    const data = await res.json();
+
+                    if(res.ok) {
+                        if(Array.isArray(data.results)) {
+                            document.getElementById('tally-a').innerText = data.results[0];
+                            document.getElementById('tally-b').innerText = data.results[1];
+                            document.getElementById('tally-c').innerText = data.results[2];
+                            resultsSection.classList.remove('hidden');
+                            inputSection.classList.add('hidden');
+                        } else {
+                            errorMsg.innerText = data.message || "No votes to tally yet.";
+                            errorMsg.classList.remove('hidden');
+                        }
+                    } else {
+                        errorMsg.innerText = data.message || "Decryption failed. Invalid Key.";
+                        errorMsg.classList.remove('hidden');
+                    }
+                } catch (e) {
+                    errorMsg.innerText = "Connection lost to the node.";
+                    errorMsg.classList.remove('hidden');
+                }
+            });
+        }
+    });
+</script>
+{% endblock %}
