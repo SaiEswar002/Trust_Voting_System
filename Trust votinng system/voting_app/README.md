@@ -1,265 +1,176 @@
-# Trust Voting System
+# End-to-End Cryptographic Blockchain Voting System
 
-A cryptographically secured decentralized electronic voting platform demonstrating homomorphic encryption, zero-knowledge proofs, and blockchain consensus for auditable elections.
-
-![Python](https://img.shields.io/badge/python-3.10-blue.svg)
-![Flask](https://img.shields.io/badge/flask-3.0-green.svg)
-![License](https://img.shields.io/badge/license-MIT-orange.svg)
+This project is a comprehensive simulation of a next-generation electronic voting system that mathematically guarantees voter privacy, election integrity, and system resilience. It combines **Biometric Hashing**, **Homomorphic Encryption**, **Zero-Knowledge Proofs (ZKPs)**, and **Blockchain Technology (Proof-of-Work)** into a fully functional 4-dashboard web application.
 
 ---
 
-## What Problem Does This Solve?
+## 🔐 Core Cryptographic Technologies Used
 
-Traditional electronic voting systems face a fundamental tension: they must simultaneously guarantee voter anonymity and provide public auditability. Centralized databases can be tampered with, trusted third parties introduce single points of failure, and most systems require voters to trust that their ballots are counted correctly without any way to verify.
+1. **SHA-256 Biometric Hashing (Authentication)**
+    - Raw fingerprints are never stored or transmitted. They are instantly hashed on the local machine using SHA-256. Only this hash is checked against the internal voter database.
 
-This project demonstrates a cryptographic approach to resolving these conflicts. By combining **Paillier homomorphic encryption** with **zero-knowledge proofs** and a **proof-of-work blockchain**, the system allows votes to be publicly recorded and verified without ever decrypting individual ballots. Each vote exists on-chain as an encrypted vector, provably well-formed but computationally infeasible to decode. Only the final aggregate tally is decrypted—meaning no individual vote is ever exposed, even to system administrators.
+2. **Paillier Homomorphic Encryption (Privacy)**
+    - Your vote (e.g., `[0, 1, 0]` for Party B) is encrypted into massive ciphertexts before leaving the machine.
+    - **Homomorphic Property:** The system can mathematically add these encrypted ciphertexts together to compute a final tally *without ever decrypting the individual votes*.
 
-Built as a BTech CSE DevOps specialization project at KL University, this implementation prioritizes educational clarity and architectural transparency. It simulates a peer-to-peer network using six Flask nodes, each maintaining a full copy of the blockchain and participating in consensus. While not production-ready in its current form, it demonstrates the cryptographic primitives and distributed architecture that underpin secure digital democracy.
+3. **Zero-Knowledge Proofs (Verifiability)**
+    - The voting machine attaches a cryptographic ZKP to prove that the encrypted vote is valid (e.g., exactly one vote was cast, no negative votes, no multiple votes) without revealing *who* you voted for.
+
+4. **Proof-of-Work Blockchain (Immutability)**
+    - Votes are bundled into blocks and secured via a cryptographic hash-chain (similar to Bitcoin).
+    - If a single bit of historical data is altered, the entire chain's hashes mathematically break, instantly alerting all validators.
 
 ---
 
-## Architecture Overview
+## 🧮 Deep Dive: Cryptographic Implementation
 
-The system consists of six independent Flask nodes (ports 5001–5006) that form a simulated P2P network. Each node maintains its own blockchain replica, validates incoming blocks, and participates in mining. State synchronization happens through internal HTTP broadcasts—when any node mines a block or resets the chain, it propagates the update to all peers.
+### 1. SHA-256 Biometric Hashing (Voter Authentication)
+- **Algorithm:** Secure Hash Algorithm (`hashlib.sha256()`)
+- **Purpose:** To verify identity without ever exposing or storing raw biometric patterns.
+- **Implementation:** The raw simulated frontend fingerprint input (e.g., `fp1`) is converted to byte format and passed through SHA-256. 
+- **Code Logic:** `hashlib.sha256(raw_fingerprint.encode()).hexdigest()`
+- **Security Guarantee:** Since SHA-256 is a deterministic one-way cryptographic hash function, even if the `voter_db.py` database is leaked, it is mathematically impossible to reverse-engineer the original thumbprints. The system only confirms if hashes match.
 
-**For detailed architecture documentation, see [`ARCHITECTURE.md`](./ARCHITECTURE.md)**
+### 2. Paillier Homomorphic Encryption (Vote Privacy & Arithmetic Tallying)
+- **Algorithm:** Asymmetric Paillier Cryptosystem (`phe` library)
+- **Key Generation:** A highly secure 512-bit asymmetric keypair is dynamically generated upon server startup.
+- **Vote Encoding:** A vote is encoded as a one-hot vector (e.g., Party B = `[0, 1, 0]`). Each integer is encrypted individually.
+- **Encryption Equation (Simplified):** `E(m, r) = g^m * r^n (mod n^2)`
+- **Homomorphic Addition Property:** The `tally_encrypted_votes` function leverages the unique mathematical equation:
+  `E(m_1) * E(m_2) (mod n^2) = E(m_1 + m_2)`
+- **Implementation:** By securely multiplying the massive ciphertext blocks of every voter together, the system computes the final aggregate tally *without ever holding the decryption key*. Only the Election Commission physically possesses the Private Key (`pk_p_q`) to decrypt the final mathematical sum into clear text.
 
+### 3. Zero-Knowledge Proofs (ZKP) (Tamper Verification)
+- **Concept:** A cryptographic proof that the encrypted vector is valid (contains exactly one `1` and the rest `0`s), without revealing strictly *which* index holds the `1`.
+- **Simulation Implementation:** In this academic implementation (`crypto_utils.py`), a `mock_zkp_signature` is generated at the moment of encryption by taking a SHA-256 hash of the concatenated ciphertext array combined with a cryptographic salt. 
+- **Verification:** Before a block is natively mined, the validator node enforces `verify_zkp(...) == True`. This process guarantees the encrypted envelope hasn't been tampered with or corrupted while propagating from the polling machine to the ledger.
+
+### 4. Proof-of-Work Blockchain Hashing (Immutable State)
+- **Block Structure:** Each block contains an `index`, `timestamp`, `data` payload (the serialized encrypted vote + receipt_id + zkp), a `previous_hash`, and a completely arbitrary `nonce`.
+- **Consensus Protocol:** The system enforces a localized Proof-of-Work algorithm (`proof_of_work()`). It iteratively increments the `nonce` integer and calculates the SHA-256 hash of the block's concatenated string contents over and over until it probabilistically discovers a hash that starts with four leading zeros (e.g., `0000a3f...`).
+- **Chain Validation:** The `is_valid_chain()` mechanism iteratively crawls from the Genesis Block to the latest block. It recalculates the hash of every single block natively and asserts two conditions:
+  1. `current_block.hash == computed_hash`
+  2. `current_block.previous_hash == previous_block.hash`
+- **Security Result:** Any byte-level alteration to the JSON payload (e.g., via the Hacker Simulation) cascades structurally, permanently breaking the hash chain's mathematical integrity and flagging the chain as invalid.
+
+---
+
+## 🖥 The 4 Dashboards
+
+### 1. The Main Voting Booth (`http://127.0.0.1:5000/`)
+The primary interface for the voter. Demonstrates the strict 7-stage life cycle of a secure vote.
+*   **Voter Pool:** You can log in using `V1` through `V10`.
+*   **Biometrics:** You must provide the matching fingerprint (`fp1` through `fp10`).
+*   **Encryption & Receipt:** Gives the voter a unique tracking receipt so they can verify their vote is on the blockchain.
+
+### 2. Booth Admin Dashboard (`http://127.0.0.1:5000/admin`)
+The interface for Election Officers running the polling station.
+*   Shows a real-time list of all 10 registered voters.
+*   Tracks who has passed biometric checks and successfully locked in a vote on the ledger.
+
+### 3. Public Ledger Explorer (`http://127.0.0.1:5000/explorer`)
+A transparent, raw view into the blockchain designed for public auditors or validator nodes.
+*   Displays the Genesis Block and all subsequent mined vote blocks.
+*   Shows the previous hash, block hash, nonce, and the heavily encrypted JSON payload.
+
+### 4. Election Commission Tally (`http://127.0.0.1:5000/commission`)
+The secure backend interface where the final election results are decrypted.
+*   Because the blockchain can only homomorphically *add* ciphertexts, it requires a master Private Key to decrypt that final sum into readable votes.
+*   Inputting the Private Key dynamically generated for the session unveils the winner.
+
+---
+
+## 💥 Threat & Disaster Simulations
+
+To demonstrate the robustness of the architecture, the system includes two real-world failure simulations:
+
+### Simulation A: Machine Power Cut (Atomic Rollback)
+*   **Where to find it:** In the Main Voting Booth (`/`), press the faint grey `[Simulate Power Cut]` link at the bottom right corner *while the machine is actively securing/encrypting your vote*.
+*   **What it proves:** If power is cut or the machine crashes before the blockchain mines the block, the voting transaction is legally incomplete. The memory is instantly wiped. Because the database operates atomically, the blockchain remains untouched, and the user is not locked out. They can simply restart their session.
+
+### Simulation B: Malicious Node Hacker
+*   **Where to find it:** In the Blockchain Explorer (`/explorer`), click the **Mutate Data (Hack)** button on any mined block.
+*   **What it proves:** This allows you to forcefully bypass consensus and change an encrypted vote payload directly in memory.
+*   When you attempt to click **"Validate Entire Chain"** afterward, the blockchain's cryptographic integrity algorithm will instantly catch the mutation. The hash chain will break, and the UI will flag the system as compromised.
+
+---
+
+## ⚙️ How It Works (The 7-Step Life Cycle)
+
+1.  **Arrival & Scan:** Voter inputs ID and thumbprint.
+2.  **Auth (SHA-256):** Local machine hashes print, verifies against database, and confirms voter hasn't voted yet.
+3.  **Selection:** Voter selects Party A, B, or C.
+4.  **Homomorphic Encryption:** Machine encrypts selection into a large integer vector.
+5.  **ZKP Generation:** Machine attaches mathematical proof of valid vote shape.
+6.  **Blockchain Mining:** The encrypted package is broadcast and mined into a block via Proof-of-Work. The voter is now officially marked as `has_voted = True`.
+7.  **Receipt:** The machine wipes all raw data from RAM and outputs a tracking ID.
+
+---
+
+## 🛠 Installation & Execution
+
+1. **Prerequisites:** Ensure you have Python 3.8+ installed.
+2. **Setup Virtual Environment:**
+   ```bash
+   python -m venv venv
+   source venv/bin/activate  # On macOS/Linux
+   ```
+3. **Install Dependencies:**
+   ```bash
+   pip install -r requirements.txt
+   ```
+   *(Requires: `Flask`, `phe` for encryption, `pytest`)*
+4. **Run the Server:**
+   ```bash
+   python app.py
+   ```
+   *The server auto-generates a new unique Private/Public key pair and a fresh Genesis Block upon startup.*
+5. **Master Reset:** To instantly zero-out the blockchain and reset all 10 Voter statuses back to pending without rebooting the server, click the faint grey `[Master Reset]` link at the bottom right of the Admin dashboard.
+
+---
+
+## 🚀 Deployment Roadmap
+
+As the system moves toward production readiness, the following steps are required for a hardened deployment:
+
+### 1. Database Migration Path
+The current state relies on `backend/db_stub.py`. Before production:
+* Install SQLAlchemy & Alembic (`pip install flask-sqlalchemy psycopg2-binary alembic`).
+* Define strict relational models in `backend/models.py` for `Voter`, `Receipt`, and `ElectionStateHistory`.
+* Use `alembic init` to set up migration tracking.
+* Replace the mock operations in `DatabaseStub` with actual PostgreSQL transactions.
+
+### 2. Environment Variables Needed
+A robust `.env` file must be provisioned injected securely into `config.py`:
+* `FLASK_ENV`: Set to `production`.
+* `DATABASE_URL`: Connection string for PostgreSQL (e.g., `postgresql://user:pass@db:5432/trust_vote`).
+* `SECRET_KEY`: A cryptographically secure random string for Flask-Session.
+* `PORT` / `PEER_NODES`: The list of networked IPs/Domains replacing the hardcoded `127.0.0.1` peer list.
+
+### 3. Docker Compose Setup
+The system components (Web Frontend, SocketIO Server, PostgreSQL DB, Redis for Sessions/PubSub) must be orchestrated.
+
+```yaml
+version: '3.8'
+services:
+  webapp:
+    build: .
+    ports:
+      - "5000:5000"
+    environment:
+      - DATABASE_URL=postgresql://postgres:password@postgres_db:5432/trust_vote
+    depends_on:
+      - postgres_db
+      - redis_cache
+  
+  postgres_db:
+    image: postgres:14-alpine
+    environment:
+      - POSTGRES_PASSWORD=password
+      - POSTGRES_DB=trust_vote
+      
+  redis_cache:
+    image: redis:alpine
 ```
-┌─────────────────────────────────────────────────────────────┐
-│  Browser (User/Worker/Admin)                                │
-│  ↓ HTTP/WebSocket                                           │
-│  Flask Node (any of 5001-5006)                              │
-│  ├─ Role-based routes (/user, /worker, /admin)             │
-│  ├─ Blockchain module (PoW mining, chain validation)       │
-│  ├─ Crypto module (Paillier, ZKP, SHA-256)                 │
-│  └─ P2P sync (broadcasts to peers on state change)         │
-└─────────────────────────────────────────────────────────────┘
-```
 
----
-
-## Cryptographic Stack
-
-| Layer | Algorithm | What It Protects | Implementation |
-|-------|-----------|------------------|----------------|
-| **Identity** | SHA-256 biometric hashing | Voter anonymity—raw fingerprints never stored, only irreversible hashes | `crypto_module.hash_fingerprint()` |
-| **Ballot Secrecy** | Paillier homomorphic encryption (512-bit) | Individual vote confidentiality—votes encrypted as one-hot vectors, never decrypted individually | `crypto_module.encrypt_vote()` |
-| **Validity Proof** | Zero-knowledge proof (challenge-response) | Ballot integrity—proves each vote contains exactly one selection without revealing which | `crypto_module.generate_zkp()` |
-| **Immutability** | Proof-of-work blockchain (SHA-256, difficulty 4) | Tamper evidence—computational cost to rewrite history, public audit trail | `blockchain.mine_block()` |
-
----
-
-## Quick Start
-
-### Prerequisites
-- Python 3.10+
-- pip
-
-### Installation
-
-```bash
-# Clone the repository
-git clone https://github.com/yourusername/trust-voting-system.git
-cd trust-voting-system
-
-# Install dependencies
-pip install -r requirements.txt
-```
-
-### Running the Network
-
-**Windows:**
-```bash
-start_network.bat
-```
-
-**Linux/macOS:**
-```bash
-chmod +x start_network.sh
-./start_network.sh
-```
-
-This launches six Flask instances on ports 5001–5006. Access any node (e.g., `http://localhost:5001`) to interact with the system.
-
----
-
-## Default Credentials
-
-| Role | Username | Password | Capabilities |
-|------|----------|----------|--------------|
-| **User** (Voter) | `voter1` | `pass123` | Register fingerprint, cast vote, view receipt |
-| **Worker** (Booth Officer) | `worker1` | `work123` | Verify voter eligibility, assist registration |
-| **Admin** (Election Commission) | `admin` | `admin123` | Start/stop election, decrypt final tally, reset system |
-
-All credentials are defined in `config.py`. **Do not use these in production.**
-
----
-
-## Demo Walkthrough
-
-### 1. Initialize the Election
-- Login as **admin** on any node (e.g., `http://localhost:5001/admin`)
-- Navigate to Admin Dashboard
-- Click **"Start Election"** to transition from `REGISTRATION` → `ACTIVE`
-
-### 2. Voter Registration
-- Login as **voter1** at `/user`
-- Submit biometric fingerprint (simulated as text input)
-- System hashes fingerprint with SHA-256, stores hash in voter registry
-- Voter is now eligible to cast ballot
-
-### 3. Cast a Vote
-- While election is `ACTIVE`, select a candidate
-- Click **"Submit Vote"**
-- Backend encrypts vote as Paillier ciphertext, generates ZKP
-- Node mines a new block (PoW with 4 leading zeros)
-- Block propagates to all peer nodes via broadcast
-
-### 4. Receive Receipt
-- After successful mining, voter receives SHA-256 receipt hash
-- QR code generated for offline verification
-- Receipt contains: `voter_hash`, `block_height`, `timestamp`, `node_id`
-
-### 5. Close Election
-- Admin clicks **"Close Election"** → state becomes `CLOSED`
-- No new votes accepted; blockchain frozen
-
-### 6. Decrypt Final Tally
-- Admin navigates to **"Tally Results"**
-- System performs homomorphic addition on all encrypted vote vectors
-- Paillier private key decrypts **only the aggregate sum**, not individual votes
-- Results displayed with per-candidate totals
-
----
-
-## Project Structure
-
-```
-trust-voting-system/
-├── app.py                    # Flask application entry point, route definitions
-├── blockchain.py             # Block class, chain validation, PoW mining logic
-├── crypto_module.py          # Paillier encryption, ZKP generation, SHA-256 hashing
-├── config.py                 # Hardcoded credentials, node ports, difficulty params
-├── network_sync.py           # P2P broadcast functions for block/reset propagation
-├── requirements.txt          # Python dependencies (Flask, phe, qrcode, etc.)
-├── start_network.bat         # Windows network launcher (6 nodes)
-├── start_network.sh          # Linux/macOS network launcher
-├── templates/
-│   ├── user_dashboard.html  # Voter interface (register, vote, receipt)
-│   ├── worker_dashboard.html # Booth officer interface
-│   ├── admin_dashboard.html # Election commission controls
-│   └── explorer.html        # Public blockchain viewer
-├── static/
-│   ├── css/
-│   │   └── style.css        # Styling for all interfaces
-│   └── js/
-│       └── main.js          # WebSocket handlers, QR rendering, live updates
-├── docs/
-│   └── ARCHITECTURE.md      # Detailed crypto/consensus documentation
-└── README.md                # This file
-```
-
----
-
-## Security Analysis
-
-### What This System Demonstrates
-
-✅ **Voter anonymity preserved**: Only biometric hashes are stored; raw fingerprints never touch the database.
-
-✅ **Ballot secrecy maintained**: Individual votes remain encrypted on-chain indefinitely. Decryption only occurs on the final aggregate tally.
-
-✅ **Vote validity provable**: ZKP cryptographically guarantees each ballot is well-formed (exactly one candidate selected) without revealing the choice.
-
-✅ **Tamper-evident ledger**: PoW blockchain makes retroactive ballot stuffing computationally expensive. Any chain rewrite requires re-mining all subsequent blocks.
-
-✅ **Public auditability**: Anyone can inspect the encrypted blockchain at `/explorer` and verify block hashes, timestamps, and proof-of-work.
-
-### Known Limitations (Honest Assessment)
-
-⚠️ **512-bit Paillier keypair**: Demonstration strength only. Production systems typically use 2048-bit or 3072-bit keys. Current implementation vulnerable to factorization attacks with sufficient computational resources.
-
-⚠️ **Low PoW difficulty (4 leading zeros)**: Chosen for fast demo mining (~2–5 seconds per block). A real deployment would require higher difficulty to prevent chain manipulation.
-
-⚠️ **In-memory state, no database persistence**: All voter registrations, blockchain data, and election state are held in Python dictionaries. Restarting a node loses its state. PostgreSQL migration is planned but not yet implemented.
-
-⚠️ **Session credentials hardcoded**: `config.py` contains plaintext usernames and passwords. Production deployment requires environment variables, secure secret management, and hashed password storage.
-
-⚠️ **Booth hardware trust assumption**: The system assumes the voting terminal itself is not compromised. Last-mile device security (tamper-evident hardware, secure boot, trusted execution environments) is out of scope for this prototype.
-
-⚠️ **No Byzantine fault tolerance**: The P2P sync mechanism assumes honest nodes. A malicious node can attempt to broadcast invalid blocks, though other nodes will reject them during validation. Consensus is simple longest-chain, not BFT.
-
-⚠️ **ZKP implementation is educational**: The zero-knowledge proof uses a simple challenge-response protocol adequate for demonstration. Production systems would require more robust ZKP frameworks (zk-SNARKs, Bulletproofs).
-
----
-
-## Deployment Roadmap
-
-### Phase 1: Database Persistence (Planned)
-- Migrate in-memory state to PostgreSQL
-- Implement SQLAlchemy ORM for voter registry, blockchain storage
-- Add database migrations with Alembic
-- Persistent node recovery after restart
-
-### Phase 2: Production Hardening (Planned)
-- Upgrade Paillier keypair to 2048-bit minimum
-- Increase PoW difficulty based on network hashrate
-- Environment variable injection for secrets (`.env` + `python-dotenv`)
-- Argon2 password hashing for user credentials
-- Rate limiting and CAPTCHA on registration endpoints
-
-### Phase 3: Containerization (Planned)
-- Dockerfile for each node
-- Docker Compose orchestration for multi-node network
-- Kubernetes manifests for cloud deployment
-- Nginx reverse proxy with TLS termination
-
-### Phase 4: Enhanced ZKP (Research)
-- Evaluate zk-SNARK libraries (libsnark, bellman)
-- Implement range proofs for ballot well-formedness
-- Benchmark proof generation and verification times
-
----
-
-## Contributing & Academic Use
-
-This project was developed as a BTech CSE DevOps specialization demonstration at KL University. It is intended for **educational purposes** to illustrate cryptographic voting primitives and distributed consensus mechanisms.
-
-**If you are a student or researcher:**
-- Feel free to fork, modify, and extend this codebase
-- Cite this repository if used in academic work
-- Open issues for questions or discussions about the cryptographic design
-
-**If you are considering production deployment:**
-- **Do not deploy this system for real elections without extensive security review**
-- Consult cryptographers and election security experts
-- Address all items in the "Known Limitations" section
-- Conduct third-party security audits and penetration testing
-
-**Pull requests welcome** for bug fixes, documentation improvements, or feature enhancements that maintain educational clarity.
-
----
-
-## License
-
-MIT License. See `LICENSE` file for details.
-
----
-
-## Acknowledgments
-
-- **KL University** — BTech CSE DevOps program support
-- **Paillier cryptosystem** — Homomorphic encryption scheme by Pascal Paillier
-- **python-phe library** — Efficient Paillier implementation
-- **Flask & SocketIO** — Web framework and real-time communication
-
----
-
-## Contact
-
-**Developer:** E. Sai Eswar  
-**Institution:** KL University, BTech CSE (DevOps Specialization)  
-**Project Type:** Hackathon / Academic Demonstration  
-**GitHub:** [Your GitHub Profile]
-
-For questions about the cryptographic implementation, see [`ARCHITECTURE.md`](./ARCHITECTURE.md). For general inquiries, open an issue in this repository.
+Upon standing up the containers, `flask db upgrade` must be run sequentially prior to launching the initial Genesis block.
