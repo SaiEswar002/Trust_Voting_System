@@ -1,6 +1,14 @@
 document.addEventListener('DOMContentLoaded', () => {
-    
-    // --- State Variables ---
+
+    // ── SHA-256 via Web Crypto API ──────────────────────────────────────────
+    // Raw biometric strings are hashed client-side and never transmitted in plaintext.
+    async function sha256(message) {
+        const msgBuffer = new TextEncoder().encode(message);
+        const hashBuffer = await crypto.subtle.digest('SHA-256', msgBuffer);
+        return Array.from(new Uint8Array(hashBuffer))
+            .map(b => b.toString(16).padStart(2, '0')).join('');
+    }
+
     let currentVoterId = null;
     let selectedVector = null;
 
@@ -40,18 +48,22 @@ document.addEventListener('DOMContentLoaded', () => {
         
         const vid = document.getElementById('voter-id').value;
         const fp = fingerprintHashInput.value;
-        
+
         if(!vid || !fp) {
             authMessage.innerText = "Please provide Voter ID and fingerprint hash.";
             authMessage.className = 'message error';
             return;
         }
 
+        // Hash raw biometric BEFORE sending — raw value never leaves browser
+        const hashedFp = await sha256(fp);
+        fingerprintHashInput.value = ''; // wipe raw value from DOM immediately
+
         try {
             const res = await fetch('/authenticate', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ voter_id: vid, fingerprint_hash: fp })
+                body: JSON.stringify({ voter_id: vid, fingerprint_hash: hashedFp })
             });
             const data = await res.json();
             
@@ -105,19 +117,24 @@ document.addEventListener('DOMContentLoaded', () => {
         addLog("> Bundling ciphertext & Generating Zero-Knowledge Proof...");
         
         try {
-            const voteFingerprintHash = document.getElementById('vote_fingerprint_hash').value;
-            if(!voteFingerprintHash) {
+            const rawVoteFp = document.getElementById('vote_fingerprint_hash').value;
+            if(!rawVoteFp) {
                 addLog("> ERROR: Please enter your fingerprint hash.");
                 return;
             }
-            
+
+            // Hash raw biometric BEFORE sending — raw value never leaves browser
+            addLog("> Hashing biometric signature (SHA-256, client-side)...");
+            const hashedVoteFp = await sha256(rawVoteFp);
+            document.getElementById('vote_fingerprint_hash').value = ''; // wipe raw
+
             const res = await fetch('/vote', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
                     voter_id: currentVoterId,
                     vote_vector: selectedVector,
-                    fingerprint_hash: voteFingerprintHash
+                    fingerprint_hash: hashedVoteFp
                 })
             });
             

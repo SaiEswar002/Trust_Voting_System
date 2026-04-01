@@ -48,27 +48,45 @@
 </div>
 
 <script>
+    // SHA-256 via Web Crypto API — raw biometric never leaves the browser
+    async function sha256(message) {
+        const msgBuffer = new TextEncoder().encode(message);
+        const hashBuffer = await crypto.subtle.digest('SHA-256', msgBuffer);
+        return Array.from(new Uint8Array(hashBuffer))
+            .map(b => b.toString(16).padStart(2, '0')).join('');
+    }
+
     document.addEventListener("DOMContentLoaded", () => {
         const roleSelect = document.getElementById("role-select");
         const userFields = document.getElementById("user-fields");
         const staffFields = document.getElementById("staff-fields");
-        
+        const loginForm  = document.querySelector('form');
+
         roleSelect.addEventListener("change", (e) => {
             if (e.target.value === 'user') {
                 userFields.classList.remove("hidden");
                 staffFields.classList.add("hidden");
-                
-                // Clear staff fields
                 document.getElementById('username').value = "";
                 document.getElementById('password').value = "";
             } else {
                 userFields.classList.add("hidden");
                 staffFields.classList.remove("hidden");
-                
-                // Clear user fields
                 document.getElementById('voter_id').value = "";
                 document.getElementById('fingerprint_hash').value = "";
             }
+        });
+
+        // Intercept form submit: hash fingerprint before sending for Citizen role
+        loginForm.addEventListener('submit', async (e) => {
+            if (roleSelect.value === 'user') {
+                e.preventDefault();
+                const fpField = document.getElementById('fingerprint_hash');
+                if (fpField.value) {
+                    fpField.value = await sha256(fpField.value);
+                }
+                loginForm.submit();
+            }
+            // Staff/Admin roles use plain password — no hashing needed here
         });
     });
 </script>

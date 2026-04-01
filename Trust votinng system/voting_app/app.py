@@ -83,7 +83,8 @@ def login_page():
         fingerprint_hash = request.form.get('fingerprint_hash')
         voter = db.get_voter(voter_id)
         
-        if voter and voter['fingerprint_hash'] == crypto.hash_fingerprint(fingerprint_hash):
+        # Fingerprint arrives pre-hashed (SHA-256 from browser) — compare directly
+        if voter and voter['fingerprint_hash'] == fingerprint_hash:
             session['role'] = 'user'
             session['username'] = voter_id
             flash("Voter Authenticated. Proceed to Booth.", "success")
@@ -208,7 +209,8 @@ def authenticate():
     if voter_record["assigned_booth"] != BOOTH_ID:
         return jsonify({"status": "error", "message": f"Access Denied: Registered at Booth {voter_record['assigned_booth']}!"}), 403
 
-    if crypto.hash_fingerprint(input_hash) != voter_record["fingerprint_hash"]:
+    # Fingerprint arrives pre-hashed (SHA-256 from browser) — compare directly
+    if input_hash != voter_record["fingerprint_hash"]:
         return jsonify({"status": "error", "message": "Biometric authentication failed"}), 401
         
     if ElectionStateManager.get_state() != 'ACTIVE':
@@ -230,7 +232,8 @@ def cast_vote():
     fingerprint_hash = data.get('fingerprint_hash')
     
     voter_record = db.get_voter(voter_id)
-    if not voter_record or crypto.hash_fingerprint(fingerprint_hash) != voter_record["fingerprint_hash"]:
+    # Fingerprint arrives pre-hashed (SHA-256 from browser) — compare directly
+    if not voter_record or fingerprint_hash != voter_record["fingerprint_hash"]:
         return jsonify({"status": "error", "message": "Authentication failed"}), 401
 
     if voter_record["has_voted"]:
